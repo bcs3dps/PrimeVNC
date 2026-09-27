@@ -13,8 +13,10 @@
 # testing on the device. So this script reconstructs that environment -- it
 # prefers the exact environment of a still-running Elegoo daemon (which init
 # launched correctly) and falls back to the reference device's known locations --
-# then launches the UI detached with its output discarded. (The box has neither
-# setsid nor nohup.)
+# then launches the UI in a HUP-ignoring subshell with its stdio on /dev/null, so
+# the UI survives the SSH session that ran this script closing. (The box has
+# neither setsid nor nohup, so that subshell is how we detach -- the same form
+# primevnc-run.sh's --background uses.)
 #
 # Usage: primevnc-restore-ui.sh
 #
@@ -49,8 +51,13 @@ fi
 [ -n "$HOME" ] || HOME=/root
 export LD_LIBRARY_PATH PATH HOME
 
-# Launch the UI detached with output discarded -- the same form the device's own
-# init script uses: "ec-eeb001-gui > /dev/null 2>&1 &".
-"$UI_BIN" >/dev/null 2>&1 &
+# Launch the UI detached. The subshell ignores SIGHUP and puts stdin and both
+# outputs on /dev/null, then execs the UI so the UI itself becomes that process
+# (so $! is its pid). The ignored HUP is inherited across the exec, which is what
+# lets the UI survive the SSH session that ran this script closing -- without it a
+# relaunch from an ssh command shell can be HUP'd when that session ends. The box
+# has neither setsid nor nohup, so this subshell is the way to detach; it is the
+# same form primevnc-run.sh's --background uses.
+( trap '' HUP; exec "$UI_BIN" >/dev/null 2>&1 </dev/null ) &
 
 echo "restarted $UI (pid $!)" >&2
