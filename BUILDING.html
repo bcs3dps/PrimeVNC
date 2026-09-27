@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Building PrimeVNC</title>
+<style>
+
+body { font-family: Arial, sans-serif; font-size: 11pt; margin: 1in;
+       line-height: 1.4; max-width: 7.5in; color: #1a1a1a; }
+h1 { font-size: 18pt; color: #1a1a1a; border-bottom: 2px solid #333;
+     padding-bottom: 4pt; margin-top: 24pt; }
+h1:first-child { margin-top: 0; }
+h2 { font-size: 14pt; color: #1a1a1a; margin-top: 22pt;
+     border-bottom: 1px solid #999; padding-bottom: 2pt; }
+h3 { font-size: 12pt; color: #333; margin-top: 16pt; }
+h4 { font-size: 11pt; color: #333; margin-top: 12pt; margin-bottom: 4pt; }
+p  { margin: 6pt 0; }
+pre { background-color: #f0f0f0; border: 1px solid #ccc; padding: 8pt;
+      font-family: Consolas, monospace; font-size: 9.5pt; white-space: pre;
+      overflow-x: auto; line-height: 1.25; }
+code { font-family: Consolas, monospace; font-size: 10pt;
+       background-color: #f0f0f0; padding: 1pt 3pt; border-radius: 2px; }
+pre code { background-color: transparent; padding: 0; font-size: 9.5pt; }
+p.note, div.note { background-color: #fff3cd; border-left: 4px solid #ffc107;
+                   padding: 6pt 10pt; margin: 8pt 0; }
+p.important, div.important { background-color: #f8d7da;
+                             border-left: 4px solid #dc3545;
+                             padding: 6pt 10pt; margin: 8pt 0; }
+p.summary, div.summary { background-color: #d1ecf1;
+                         border-left: 4px solid #0c5460;
+                         padding: 6pt 10pt; margin: 8pt 0; }
+ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+li { margin-bottom: 4pt; }
+li > ul, li > ol { margin-top: 4pt; margin-bottom: 4pt; }
+/* Indented outline body. Use in markdown as:
+   <div class="indent" markdown="1"> ...markdown incl. code fences... </div>
+   (the md_in_html extension processes markdown inside the div). */
+div.indent { margin: 4pt 0 8pt 2em; }
+div.indent > :first-child { margin-top: 0; }
+div.indent > :last-child  { margin-bottom: 0; }
+table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+td, th { border: 1px solid #999; padding: 4pt 8pt; font-size: 10pt;
+         vertical-align: top; }
+th { background-color: #e0e0e0; text-align: left; }
+tr:nth-child(even) td { background-color: #f7f7f7; }
+a  { color: #1e3a8a; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #999; margin: 16pt 0; }
+strong { color: #1a1a1a; }
+img { max-width: 100%; height: auto; }
+
+.doc-meta { color: #555; font-size: 10pt; margin-top: -6pt;
+            margin-bottom: 12pt; }
+.toc { background-color: #f7f7f7; border: 1px solid #ccc;
+       padding: 10pt 14pt; margin: 16pt 0 24pt; font-size: 10.5pt; }
+.toc h2 { font-size: 12pt; margin-top: 0; margin-bottom: 6pt; border: none;
+          color: #333; }
+.toc ul { margin: 0; padding-left: 20pt; }
+.toc li { margin-bottom: 2pt; }
+.toc a { color: #1e3a8a; }
+
+@media print {
+  body { margin: 0.75in; }
+  pre, table, div.note, div.important { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+</style>
+</head>
+<body>
+<h1>Building PrimeVNC</h1>
+<div class="toc">
+<h2>Contents</h2>
+<ul>
+  <li><a href="#1-what-the-build-produces">1. What the build produces</a></li>
+  <li><a href="#2-requirements-at-a-glance">2. Requirements at a glance</a></li>
+  <li><a href="#3-getting-the-tools">3. Getting the tools</a></li>
+  <li><a href="#4-running-the-build">4. Running the build</a></li>
+  <li><a href="#5-running-the-client-off-the-device">5. Running the client off the device</a></li>
+  <li><a href="#6-deploying-to-a-device">6. Deploying to a device</a></li>
+  <li><a href="#7-troubleshooting">7. Troubleshooting</a></li>
+  <li><a href="#8-summary">8. Summary</a></li>
+</ul>
+</div>
+<p>PrimeVNC is a framebuffer VNC client for embedded Linux devices: pure C99, no
+libraries beyond the C library and the Linux kernel&rsquo;s own headers, one
+statically linked executable. This document says what is needed to build it,
+where to get those tools, how to run the build, and how to check the result.
+The command line, the launcher lifecycle and the framebuffer driver rules are
+in <code>README.md</code> and <code>SUNXI_FB_INTERFACE.md</code>; this document covers the build
+only.</p>
+<hr />
+<h2 id="1-what-the-build-produces">1. What the build produces</h2>
+<p><code>build.sh</code> builds one of two targets. The first is the deployment binary;
+the second exists for development on the build machine.</p>
+<table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Command</th>
+<th>Output</th>
+<th>What it is for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>armhf</code> (default)</td>
+<td><code>bash build.sh</code> or <code>bash build.sh armhf</code></td>
+<td><code>build/primevnc-armhf</code></td>
+<td>The device binary: ARMv7-A, hard-float, NEON, <strong>statically linked</strong>. Copy this to the device.</td>
+</tr>
+<tr>
+<td><code>native</code></td>
+<td><code>bash build.sh native</code></td>
+<td><code>build/primevnc-native</code></td>
+<td>The same client compiled for the build machine, for developing the protocol core. It still needs a framebuffer and an evdev device to run.</td>
+</tr>
+</tbody>
+</table>
+<p>Every source file is named explicitly in <code>build.sh</code>; there are no wildcards.
+Removing a listed file fails the build, and a new file is not part of the
+program until it is listed. That is deliberate.</p>
+<p>The deployment binary is about 450 KB. Because it is static, the device needs
+no particular C library version; it needs a Linux kernel new enough for the
+toolchain&rsquo;s C library (any kernel from the last decade) and a CPU matching
+the flags in section 4.3.</p>
+<hr />
+<h2 id="2-requirements-at-a-glance">2. Requirements at a glance</h2>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>For which targets</th>
+<th>Debian / Ubuntu package</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A Linux build environment with <code>bash</code>, <code>mkdir</code>, <code>grep</code> and <code>file</code></td>
+<td>all</td>
+<td><code>bash</code>, <code>coreutils</code>, <code>grep</code>, <code>file</code> (present on any normal install)</td>
+</tr>
+<tr>
+<td>A native C compiler, <code>gcc</code></td>
+<td><code>native</code></td>
+<td><code>build-essential</code></td>
+</tr>
+<tr>
+<td>An ARM cross compiler, <code>arm-linux-gnueabihf-gcc</code>, with a <strong>static</strong> C library and the Linux headers for ARM</td>
+<td><code>armhf</code></td>
+<td><code>gcc-arm-linux-gnueabihf</code> (pulls <code>binutils-arm-linux-gnueabihf</code>, <code>libc6-dev-armhf-cross</code> and <code>linux-libc-dev-armhf-cross</code>)</td>
+</tr>
+<tr>
+<td><code>arm-linux-gnueabihf-readelf</code></td>
+<td><code>armhf</code> (post-build check only)</td>
+<td><code>binutils-arm-linux-gnueabihf</code></td>
+</tr>
+<tr>
+<td><code>qemu-arm-static</code></td>
+<td>optional: run the ARM binary on the build machine</td>
+<td><code>qemu-user-static</code></td>
+</tr>
+</tbody>
+</table>
+<p>The build was developed and tested with <strong>GCC 13.3.0</strong> for both the native
+and the cross compiler, from the Ubuntu 24.04 packages named above. Any GCC
+from 4.9 onward that understands <code>-std=c99</code>, <code>-march=armv7-a</code> and
+<code>-mfpu=neon-vfpv4</code> should work; nothing in the source needs a newer compiler.</p>
+<hr />
+<h2 id="3-getting-the-tools">3. Getting the tools</h2>
+<h3>3.1 A Linux build environment</h3>
+<p>The build script is a <code>bash</code> script and the compilers are GNU toolchains, so
+the build runs on Linux. Any of these will do:</p>
+<ul>
+<li><strong>A Linux machine or virtual machine.</strong> Debian and Ubuntu are the worked
+  examples below because their repositories carry a complete ARM cross
+  toolchain in one package.</li>
+<li><strong>Windows Subsystem for Linux (WSL)</strong> on Windows 10 or 11, with any
+  distribution that has the packages below. Install instructions:
+  <a href="https://learn.microsoft.com/windows/wsl/install">https://learn.microsoft.com/windows/wsl/install</a>.</li>
+<li><strong>A container</strong> (Docker, Podman) from a Debian or Ubuntu image, with the
+  source directory mounted in.</li>
+</ul>
+<p>macOS has no packaged glibc cross toolchain for this target; use a container
+or a virtual machine there.</p>
+<h3>3.2 The native compiler (GCC)</h3>
+<ul>
+<li>Upstream: <a href="https://gcc.gnu.org/">https://gcc.gnu.org/</a></li>
+<li>Debian / Ubuntu: <code>sudo apt-get install build-essential file</code></li>
+<li>Fedora: <code>sudo dnf groupinstall "Development Tools"</code> and <code>sudo dnf install file</code></li>
+</ul>
+<p><code>build.sh</code> calls the compiler as <code>gcc</code>. The <code>file</code> utility is used by the
+post-build check to describe the binary.</p>
+<h3>3.3 The ARM cross toolchain</h3>
+<p>The <code>armhf</code> target needs a GCC that produces <strong>ARM 32-bit, little-endian,
+hard-float, glibc</strong> code (the <code>arm-linux-gnueabihf</code> triplet) and that ships
+the <strong>static</strong> C library (<code>libc.a</code>), because the binary is linked with
+<code>-static</code>. It also needs the Linux kernel&rsquo;s user-space headers for ARM
+(<code>linux/fb.h</code>, <code>linux/input.h</code>); every complete Linux toolchain includes them.</p>
+<p><strong>Option A - distribution packages (recommended on Debian / Ubuntu).</strong> One
+package brings the compiler, the binutils, the static and shared C library
+and the kernel headers, all under the exact names <code>build.sh</code> expects:</p>
+<pre><code>sudo apt-get install gcc-arm-linux-gnueabihf
+</code></pre>
+<p>Package pages: <a href="https://packages.ubuntu.com/gcc-arm-linux-gnueabihf">https://packages.ubuntu.com/gcc-arm-linux-gnueabihf</a> and
+<a href="https://packages.debian.org/gcc-arm-linux-gnueabihf">https://packages.debian.org/gcc-arm-linux-gnueabihf</a>. Confirm the install
+with <code>arm-linux-gnueabihf-gcc --version</code>.</p>
+<p><strong>Option B - the Arm GNU Toolchain (Arm&rsquo;s own binary release).</strong> Download the
+<code>arm-none-linux-gnueabihf</code> variant for your host from
+<a href="https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads">https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads</a>, unpack
+it anywhere, and put its <code>bin/</code> directory on <code>PATH</code>. Its tools carry the
+prefix <code>arm-none-linux-gnueabihf-</code>, so create the two names the script uses
+(see &ldquo;Toolchains with a different prefix&rdquo; below).</p>
+<p><strong>Option C - Bootlin toolchains.</strong> <a href="https://toolchains.bootlin.com/">https://toolchains.bootlin.com/</a> offers
+prebuilt <code>armv7-eabihf</code> glibc toolchains. Pick the glibc variant (the &ldquo;stable&rdquo;
+release), unpack it, put its <code>bin/</code> on <code>PATH</code>, and add the two names the
+script uses if the toolchain&rsquo;s own prefix differs.</p>
+<p><strong>Option D - musl instead of glibc (smaller binary, not the tested
+configuration).</strong> <a href="https://musl.cc/">https://musl.cc/</a> publishes <code>arm-linux-musleabihf-cross</code>.
+musl links statically by nature and its binaries are noticeably smaller. The
+authors build and test with glibc; a musl build is expected to work but has
+not been verified.</p>
+<p><strong>Toolchains with a different prefix.</strong> <code>build.sh</code> invokes the compiler and
+the ELF reader by the fixed names <code>arm-linux-gnueabihf-gcc</code> and
+<code>arm-linux-gnueabihf-readelf</code>. For a toolchain whose tools are named
+differently, put two symbolic links with those names somewhere on <code>PATH</code>,
+pointing at the toolchain&rsquo;s own binaries. For example, for the Arm GNU
+Toolchain unpacked under <code>~/toolchains/arm-gnu</code>:</p>
+<pre><code>mkdir -p ~/bin
+ln -s ~/toolchains/arm-gnu/bin/arm-none-linux-gnueabihf-gcc     ~/bin/arm-linux-gnueabihf-gcc
+ln -s ~/toolchains/arm-gnu/bin/arm-none-linux-gnueabihf-readelf ~/bin/arm-linux-gnueabihf-readelf
+export PATH=&quot;$HOME/bin:$PATH&quot;
+</code></pre>
+<p><strong>Check that the toolchain can link statically</strong> before the first build:</p>
+<pre><code>echo 'int main(void){return 0;}' &gt; /tmp/t.c
+arm-linux-gnueabihf-gcc -static -o /tmp/t /tmp/t.c &amp;&amp; file /tmp/t
+</code></pre>
+<p><code>file</code> must report <code>statically linked</code>. A toolchain without <code>libc.a</code> fails
+this with <code>cannot find -lc</code> or similar; on Debian / Ubuntu the fix is
+<code>sudo apt-get install libc6-dev-armhf-cross</code>.</p>
+<h3>3.4 Optional: QEMU user-mode emulation</h3>
+<p>With <code>qemu-arm-static</code> installed the ARM binary runs on the build machine,
+which is enough to check <code>--version</code>, <code>--help</code>, the option parsing and the
+network side of a connection. The framebuffer and touch devices do not exist
+under user-mode emulation, so a full run still needs the device.</p>
+<ul>
+<li>Upstream: <a href="https://www.qemu.org/download/">https://www.qemu.org/download/</a></li>
+<li>Debian / Ubuntu: <code>sudo apt-get install qemu-user-static</code></li>
+</ul>
+<p><code>build.sh</code> reports after an <code>armhf</code> build whether QEMU was found. It is never
+required to build.</p>
+<hr />
+<h2 id="4-running-the-build">4. Running the build</h2>
+<h3>4.1 Steps</h3>
+<ol>
+<li>Unpack or clone the source. Open a shell in the <code>PrimeVNC</code> directory (the
+   one containing <code>build.sh</code>, <code>src/</code> and <code>test/</code>).</li>
+<li>Run the target you want:</li>
+</ol>
+<p><code>bash build.sh            # the device binary (same as: bash build.sh armhf)
+   bash build.sh native     # host build</code></p>
+<p>Running it as <code>bash build.sh</code> avoids depending on the executable bit,
+   which a copy through Windows or a zip archive may have dropped;
+   <code>chmod +x build.sh &amp;&amp; ./build.sh</code> is equivalent.
+3. Outputs land in <code>build/</code>, which the script creates. Nothing outside the
+   <code>PrimeVNC</code> directory is written.</p>
+<h3>4.2 What a successful <code>armhf</code> build prints</h3>
+<p>The script echoes the compiler command, then runs the checks below. The
+lines to look for:</p>
+<pre><code>build.sh: target=armhf  cc=arm-linux-gnueabihf-gcc
+build.sh: built .../build/primevnc-armhf
+----- file -----
+.../build/primevnc-armhf: ELF 32-bit LSB executable, ARM, EABI5 version 1 (GNU/Linux), statically linked, ...
+----- readelf -A (CPU arch / float ABI) -----
+  Tag_CPU_arch: v7
+  Tag_FP_arch: VFPv4
+  Tag_ABI_VFP_args: VFP registers
+----- readelf -d (dynamic NEEDED - should be empty for a static build) -----
+(no NEEDED entries - statically linked)
+build.sh: OK
+</code></pre>
+<p>Three things matter in that output. <code>statically linked</code> and the absence of
+<code>NEEDED</code> entries mean the binary carries its own C library and depends on
+nothing on the device. <code>Tag_CPU_arch: v7</code> with <code>Tag_FP_arch: VFPv4</code> and
+<code>VFP registers</code> mean the code is ARMv7-A hard-float, which is what the
+device&rsquo;s kernel and CPU expect. A compiler warning is a defect: the tree
+builds with zero warnings under <code>-Wall -Wextra -Wshadow -Wpointer-arith</code>.</p>
+<h3>4.3 The compiler flags, and adapting them</h3>
+<p><code>build.sh</code> uses these flags for every target:</p>
+<pre><code>-std=c99 -D_GNU_SOURCE -O2 -Wall -Wextra -Wshadow -Wpointer-arith
+</code></pre>
+<p><code>-D_GNU_SOURCE</code> is given on the command line, before any header is read, so
+that <code>poll</code>, <code>mmap</code>, <code>sigaction</code> and the evdev interface are visible under
+strict C99. For the <code>armhf</code> target it adds:</p>
+<pre><code>-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -static
+</code></pre>
+<p>These select an ARMv7-A core with NEON and VFPv4, which covers Cortex-A5,
+A7, A15 and A17. For a core with NEON but only VFPv3 (Cortex-A8, A9) change
+<code>-mfpu=neon-vfpv4</code> to <code>-mfpu=neon</code>; for a core without NEON use
+<code>-mfpu=vfpv3-d16</code>. A binary built for a floating-point unit the CPU does not
+have dies with <code>Illegal instruction</code> at the first such instruction, which
+may be well into the program. The flags live in one place in <code>build.sh</code>
+(the <code>armhf)</code> case), so an adaptation is a one-line edit.</p>
+<p>For a 64-bit ARM device, build with <code>aarch64-linux-gnu-gcc</code> and drop the
+three ARM-specific flags, keeping <code>-static</code>. The protocol, network, input and
+DES code is portable C; the framebuffer code in <code>src/framebuffer.c</code> calls
+the Allwinner sunxi driver&rsquo;s custom ioctls described in
+<code>SUNXI_FB_INTERFACE.md</code>, and that is the file to review for a different
+display driver.</p>
+<h3>4.4 Building without the script</h3>
+<p>For integration into another build system, the whole program is one
+compiler invocation. The source list is the one <code>build.sh</code> declares:</p>
+<pre><code>arm-linux-gnueabihf-gcc -std=c99 -D_GNU_SOURCE -O2 \
+    -Wall -Wextra -Wshadow -Wpointer-arith \
+    -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -static \
+    -o primevnc \
+    src/main.c src/log.c src/net.c src/des.c src/pixfmt.c \
+    src/framebuffer.c src/input.c src/rfb.c
+</code></pre>
+<p>There are no generated files, no configure step and no dependencies to
+resolve. Keep the source list explicit in whatever build system you use.</p>
+<h3>4.5 Exit codes of <code>build.sh</code></h3>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Built</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Unknown target name</td>
+</tr>
+<tr>
+<td>3</td>
+<td>The compiler for the chosen target was not found on <code>PATH</code></td>
+</tr>
+<tr>
+<td>other</td>
+<td>The compiler&rsquo;s own exit code; its messages are above the <code>BUILD FAILED</code> line</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5-running-the-client-off-the-device">5. Running the client off the device</h2>
+<p><strong>The native build</strong> (<code>bash build.sh native</code>) is the full client for the
+build machine. It is dynamically linked and is for developing the protocol
+core; to run it you need a Linux framebuffer device and an evdev pointer
+device on that machine, which a desktop session normally does not offer. It
+connects to any VNC server that serves RAW 32 bpp true colour with VNC
+authentication or no authentication, so a desktop VNC server on the same
+machine or LAN is a sufficient partner for protocol work; the display path
+itself is proven only on the device.</p>
+<hr />
+<h2 id="6-deploying-to-a-device">6. Deploying to a device</h2>
+<p>The <code>armhf</code> binary is one file with no dependencies. Copy it to the device
+(for example with <code>scp</code> or <code>sftp</code>), make it executable, and run it as a user
+that can open the framebuffer, the touch device and, for the backlight
+controls, the display control device - on most embedded Linux systems that
+is <code>root</code>:</p>
+<pre><code>scp build/primevnc-armhf root@&lt;device&gt;:/tmp/primevnc
+ssh root@&lt;device&gt; 'chmod +x /tmp/primevnc &amp;&amp; /tmp/primevnc --version'
+</code></pre>
+<p>The command line, the exit codes and what a launcher around the client must
+do are in <code>README.md</code>. Whatever program owns the display must be stopped
+before the client starts, and restarted after it exits; the client itself
+does neither. <code>SUNXI_FB_INTERFACE.md</code> documents the framebuffer driver
+behaviour the client depends on.</p>
+<hr />
+<h2 id="7-troubleshooting">7. Troubleshooting</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>build.sh: compiler 'arm-linux-gnueabihf-gcc' not found in PATH</code> (exit 3)</td>
+<td>No cross toolchain, or one under another name</td>
+<td>Install per section 3.3, or add the two symbolic links described there</td>
+</tr>
+<tr>
+<td><code>cannot find -lc</code>, <code>cannot find crt1.o</code>, or <code>libc.a: No such file</code> when linking <code>armhf</code></td>
+<td>The toolchain has no static C library</td>
+<td>Debian / Ubuntu: <code>sudo apt-get install libc6-dev-armhf-cross</code>; other toolchains: choose a release that ships <code>libc.a</code></td>
+</tr>
+<tr>
+<td><code>linux/fb.h: No such file or directory</code> or <code>linux/input.h: No such file or directory</code></td>
+<td>The toolchain lacks the Linux user-space headers</td>
+<td>Debian / Ubuntu: <code>sudo apt-get install linux-libc-dev-armhf-cross</code>; other toolchains: use a Linux (not bare-metal) variant</td>
+</tr>
+<tr>
+<td><code>/usr/bin/env: 'bash\r': No such file or directory</code> or <code>$'\r': command not found</code></td>
+<td><code>build.sh</code> was converted to CRLF line endings on the way in</td>
+<td><code>dos2unix build.sh</code> (package <code>dos2unix</code>), or run it as <code>bash build.sh</code> after converting</td>
+</tr>
+<tr>
+<td><code>bash: ./build.sh: Permission denied</code></td>
+<td>The executable bit was lost in a copy</td>
+<td>Run <code>bash build.sh</code>, or <code>chmod +x build.sh</code></td>
+</tr>
+<tr>
+<td><code>arm-linux-gnueabihf-readelf: command not found</code> after a successful compile</td>
+<td>Cross binutils missing</td>
+<td><code>sudo apt-get install binutils-arm-linux-gnueabihf</code>. The binary is already built; only the post-build check was skipped</td>
+</tr>
+<tr>
+<td>The binary prints <code>Illegal instruction</code> on the device</td>
+<td>The CPU lacks NEON or VFPv4</td>
+<td>Adjust <code>-mfpu</code> as in section 4.3 and rebuild</td>
+</tr>
+<tr>
+<td>The binary reports <code>No such file or directory</code> on the device although it is plainly there</td>
+<td>It was built dynamically (a <code>native</code> build copied by mistake, or <code>-static</code> removed) and the device lacks the loader it names</td>
+<td>Copy <code>build/primevnc-armhf</code> from an <code>armhf</code> build; check with <code>file</code> that it says <code>statically linked</code></td>
+</tr>
+<tr>
+<td>Warnings during the build</td>
+<td>A compiler newer than the tested one, or a local change</td>
+<td>The tree is warning-free under the flags in section 4.3; treat a warning as a defect to fix, not noise</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8-summary">8. Summary</h2>
+<p>On Debian or Ubuntu (natively, in a container, or under WSL) the whole
+setup is:</p>
+<pre><code>sudo apt-get install build-essential file gcc-arm-linux-gnueabihf
+cd PrimeVNC
+bash build.sh           # the device binary -&gt; build/primevnc-armhf
+</code></pre>
+<p>Everything else in this document is for other toolchains and other targets.</p>
+</body>
+</html>

@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Talking to /dev/fb0 on Allwinner sunxi (disp2) Linux — the correct sequence</title>
+<style>
+
+body { font-family: Arial, sans-serif; font-size: 11pt; margin: 1in;
+       line-height: 1.4; max-width: 7.5in; color: #1a1a1a; }
+h1 { font-size: 18pt; color: #1a1a1a; border-bottom: 2px solid #333;
+     padding-bottom: 4pt; margin-top: 24pt; }
+h1:first-child { margin-top: 0; }
+h2 { font-size: 14pt; color: #1a1a1a; margin-top: 22pt;
+     border-bottom: 1px solid #999; padding-bottom: 2pt; }
+h3 { font-size: 12pt; color: #333; margin-top: 16pt; }
+h4 { font-size: 11pt; color: #333; margin-top: 12pt; margin-bottom: 4pt; }
+p  { margin: 6pt 0; }
+pre { background-color: #f0f0f0; border: 1px solid #ccc; padding: 8pt;
+      font-family: Consolas, monospace; font-size: 9.5pt; white-space: pre;
+      overflow-x: auto; line-height: 1.25; }
+code { font-family: Consolas, monospace; font-size: 10pt;
+       background-color: #f0f0f0; padding: 1pt 3pt; border-radius: 2px; }
+pre code { background-color: transparent; padding: 0; font-size: 9.5pt; }
+p.note, div.note { background-color: #fff3cd; border-left: 4px solid #ffc107;
+                   padding: 6pt 10pt; margin: 8pt 0; }
+p.important, div.important { background-color: #f8d7da;
+                             border-left: 4px solid #dc3545;
+                             padding: 6pt 10pt; margin: 8pt 0; }
+p.summary, div.summary { background-color: #d1ecf1;
+                         border-left: 4px solid #0c5460;
+                         padding: 6pt 10pt; margin: 8pt 0; }
+ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+li { margin-bottom: 4pt; }
+li > ul, li > ol { margin-top: 4pt; margin-bottom: 4pt; }
+/* Indented outline body. Use in markdown as:
+   <div class="indent" markdown="1"> ...markdown incl. code fences... </div>
+   (the md_in_html extension processes markdown inside the div). */
+div.indent { margin: 4pt 0 8pt 2em; }
+div.indent > :first-child { margin-top: 0; }
+div.indent > :last-child  { margin-bottom: 0; }
+table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+td, th { border: 1px solid #999; padding: 4pt 8pt; font-size: 10pt;
+         vertical-align: top; }
+th { background-color: #e0e0e0; text-align: left; }
+tr:nth-child(even) td { background-color: #f7f7f7; }
+a  { color: #1e3a8a; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #999; margin: 16pt 0; }
+strong { color: #1a1a1a; }
+img { max-width: 100%; height: auto; }
+
+.doc-meta { color: #555; font-size: 10pt; margin-top: -6pt;
+            margin-bottom: 12pt; }
+.toc { background-color: #f7f7f7; border: 1px solid #ccc;
+       padding: 10pt 14pt; margin: 16pt 0 24pt; font-size: 10.5pt; }
+.toc h2 { font-size: 12pt; margin-top: 0; margin-bottom: 6pt; border: none;
+          color: #333; }
+.toc ul { margin: 0; padding-left: 20pt; }
+.toc li { margin-bottom: 2pt; }
+.toc a { color: #1e3a8a; }
+
+@media print {
+  body { margin: 0.75in; }
+  pre, table, div.note, div.important { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+</style>
+</head>
+<body>
+<h1>Talking to <code>/dev/fb0</code> on Allwinner sunxi (disp2) Linux — the correct sequence</h1>
+<div class="toc">
+<h2>Contents</h2>
+<ul>
+  <li><a href="#0-where-this-comes-from">0. Where this comes from</a></li>
+  <li><a href="#1-the-reference-device-measured">1. The reference device, measured</a></li>
+  <li><a href="#2-the-memory-model--what-the-driver-actually-does">2. The memory model — what the driver actually does</a></li>
+  <li><a href="#3-the-pixel-format--the-alpha-byte-is-live">3. The pixel format — the alpha byte is live</a></li>
+  <li><a href="#4-the-ioctls">4. The ioctls</a></li>
+  <li><a href="#5-the-correct-lifecycle-and-per-frame-sequence">5. The correct lifecycle and per-frame sequence</a></li>
+  <li><a href="#6-page-flipping--what-the-pan-needs">6. Page flipping — what the pan needs</a></li>
+  <li><a href="#7-rules">7. Rules</a></li>
+  <li><a href="#8-diagnostics-that-settle-each-step-on-the-box">8. Diagnostics that settle each step on the box</a></li>
+  <li><a href="#9-open-items-and-caveats">9. Open items and caveats</a></li>
+  <li><a href="#10-minimal-annotated-c-the-sequence-not-a-module">10. Minimal annotated C (the sequence, not a module)</a></li>
+  <li><a href="#11-brightness-backlight-and-blanking--not-fbdevrsquos-business-here">11. Brightness, backlight and blanking — not fbdev&rsquo;s business here</a></li>
+</ul>
+</div>
+<p><strong>Part:</strong> Allwinner sun8iw20 (marketed T113 / R528), 2x Cortex-A7, Tina Linux
+<strong>5.4.61</strong>, sunxi <strong>disp2</strong> framebuffer driver over <strong>ION</strong>. The same driver, with
+the same custom ioctls, ships in the other sunxi BSPs of this generation, so the
+sequence below applies beyond this one part.
+<strong>Reference device:</strong> a 532x300, 32 bpp panel on which every number below was
+measured. Everything here comes from the driver source and the device&rsquo;s own
+stock GUI binary, not from documentation; every number has a named source.</p>
+<h2 id="0-where-this-comes-from">0. Where this comes from</h2>
+<ul>
+<li><strong>Driver source:</strong> <code>drivers/video/fbdev/sunxi/disp2/disp/dev_fb.c</code>, in two
+  public BSP trees whose custom-ioctl block and handlers are identical:</li>
+<li>sun8iw20 / T113, linux-4.9: <code>https://github.com/YuzukiHD/TinyVision</code>
+    (<code>kernel/linux-4.9/drivers/video/fbdev/sunxi/disp2/disp/dev_fb.c</code>).
+    Line numbers below refer to this file.</li>
+<li>sun50iw9 / H616, linux-5.4: <code>https://github.com/orangepi-xunlong/linux-orangepi</code>,
+    branch <code>orange-pi-5.4-sun50iw9</code>, same path.</li>
+<li><strong>The device&rsquo;s stock GUI</strong> (an LVGL application, shipped unstripped with
+  symbols): its <code>sunxifb_init</code> / <code>sunxifb_flush</code> / <code>sunxifb_exit</code> are the
+  reference implementation that is known to light the panel. Disassembled call
+  order and immediates are quoted where they settle a point.</li>
+<li><strong>Live measurements</strong> (read-only probes on the reference device): the geometry
+  and the touch facts in section 1.</li>
+<li><strong>Caveat:</strong> no public sun8iw20 <strong>5.4</strong> tree was found. The ioctl numbering is
+  identical across the SoC axis (sun8iw20 / 4.9) and the kernel-version axis
+  (sun50iw9 / 5.4) and matches the GUI binary, so it is taken as confirmed for
+  this kernel. Anything that a future 5.4 tree contradicts is flagged in
+  section 9.</li>
+</ul>
+<h2 id="1-the-reference-device-measured">1. The reference device, measured</h2>
+<table>
+<thead>
+<tr>
+<th>Fact</th>
+<th>Value</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node</td>
+<td><code>/dev/fb0</code></td>
+<td>live</td>
+</tr>
+<tr>
+<td>Visible</td>
+<td><strong>532 x 300</strong></td>
+<td><code>FBIOGET_VSCREENINFO</code> live</td>
+</tr>
+<tr>
+<td>Virtual</td>
+<td><strong>532 x 600</strong> — two pages</td>
+<td><code>yres_virtual</code> live</td>
+</tr>
+<tr>
+<td>Depth</td>
+<td><strong>32 bpp</strong>, <code>red 16/8</code>, <code>green 8/8</code>, <code>blue 0/8</code>, <strong><code>transp 24/8</code></strong></td>
+<td>var bitfields; driver <code>disp_fb_to_var</code> ARGB_8888 case</td>
+</tr>
+<tr>
+<td>Stride</td>
+<td><strong>2128</strong> bytes (= 532 x 4)</td>
+<td><code>FBIOGET_FSCREENINFO</code> live</td>
+</tr>
+<tr>
+<td>Mapped length</td>
+<td><strong>1,276,800</strong> bytes (both pages)</td>
+<td><code>smem_len</code> live</td>
+</tr>
+<tr>
+<td>Memory order</td>
+<td><code>B, G, R, A</code> (little-endian word <code>0xAARRGGBB</code>)</td>
+<td>bitfields</td>
+</tr>
+<tr>
+<td>Page offsets</td>
+<td>page 0 at byte 0, page 1 at <strong>638,400</strong> (300 x 2128)</td>
+<td>derived</td>
+</tr>
+<tr>
+<td>Touch</td>
+<td><code>/dev/input/event0</code>, <code>sitronix_ts_i2c</code>, EV_ABS, X[0..531] Y[0..299], rotate 0</td>
+<td>live</td>
+</tr>
+<tr>
+<td>Stock GUI</td>
+<td><code>/opt/bin/ec-eeb001-gui</code>, launched bare, <strong>no respawn</strong>, <strong>ignores SIGTERM</strong> (<code>killall -9</code>), restart <code>ec-eeb001-gui &gt; /dev/null 2&gt;&amp;1 &amp;</code></td>
+<td>live</td>
+</tr>
+</tbody>
+</table>
+<p>Another sunxi device will differ in the panel numbers and the GUI; read them
+with the same ioctls and the same <code>ps</code>, and the rest of this document holds.</p>
+<h2 id="2-the-memory-model--what-the-driver-actually-does">2. The memory model — what the driver actually does</h2>
+<ol>
+<li><strong>One ION buffer for the whole fb.</strong> <code>fb_map_video_memory</code> (102-131) calls
+   <code>disp_ion_malloc(smem_len)</code> once; <code>screen_base</code> is the kernel mapping of that
+   buffer; it is memset to black at init. Both pages live in it.</li>
+<li><strong>The display engine scans PHYSICAL RAM by DMA.</strong> It never sees a CPU cache.</li>
+<li><strong>Whether YOUR mapping is cached is decided when you call <code>mmap</code>, from a
+   kernel-global per-node flag</strong> (<code>sunxi_fb_mmap</code>, 839-862):
+   <code>if (g_fbi.mem_cache_flag[node])</code> the dma-buf is flagged
+   <code>ION_FLAG_CACHED | ION_FLAG_CACHED_NEEDS_SYNC</code> and mapped <strong>cached</strong>;
+   otherwise flagged 0 and mapped <strong>uncached</strong>. The flag lives in a <code>static</code>
+   struct (58) and is never initialised, so its <strong>boot default is 0 =
+   uncached</strong>.</li>
+<li><strong><code>FBIO_ENABLE_CACHE</code> does nothing except set that flag</strong> (1359-1365,
+   <code>mem_cache_flag[node] = (karg[0] == 1) ? 1 : 0</code>). It does not touch an
+   existing mapping. It therefore only has an effect if it runs <strong>before</strong>
+   <code>mmap</code> — and <strong>the flag persists across processes</strong>: whatever the last
+   process set is what the next <code>mmap</code> gets.</li>
+<li><strong><code>FBIO_CACHE_SYNC</code> cleans the whole buffer</strong> (1367-1373):
+   <code>disp_ion_flush_cache(mem[node]-&gt;vaddr, mem[node]-&gt;size)</code> through the kernel
+   mapping, under <code>CONFIG_ION_SUNXI</code>. The third ioctl arg is <strong>ignored</strong>.
+   Cortex-A7 caches behave as PIPT for coherency, so dirty lines written through
+   a user mapping of the same pages are cleaned regardless of the virtual alias.</li>
+<li><strong><code>FBIOPAN_DISPLAY</code> reprograms the layer&rsquo;s source crop and waits for vsync</strong>
+   (<code>sunxi_fb_pan_display</code>, 644-757): <code>crop.x/y = xoffset/yoffset</code>,
+   <code>crop.width/height = xres/yres</code>, <code>set_layer_config</code>, then
+   <code>fb_wait_for_vsync</code>. It does <strong>not</strong> flush any cache.</li>
+</ol>
+<p><strong>What this means:</strong> with an uncached mapping, plain writes reach RAM and the
+panel shows them after a pan with no flush — but every READ of the fb is
+uncached and slow. With a cached mapping, writes sit in cache until they are
+cleaned; the panel shows nothing new until <code>FBIO_CACHE_SYNC</code> runs. The stock
+GUI chooses <strong>cached + flush</strong> and so should any client that reads the fb
+(page seeding, CopyRect).</p>
+<p><strong>The trap:</strong> the GUI sets the flag to 1 and, if it is killed with <code>-9</code>, its
+<code>sunxifb_exit</code> (which resets the flag to 0) never runs. The next process to
+<code>mmap</code> — without asking — gets a <strong>cached</strong> mapping and, if it never flushes,
+a black panel. <strong>Never rely on the inherited flag. Set the mode yourself,
+before <code>mmap</code>, every time.</strong></p>
+<h2 id="3-the-pixel-format--the-alpha-byte-is-live">3. The pixel format — the alpha byte is live</h2>
+<p>The var advertises <code>transp.offset 24, length 8</code>, and the driver maps 32 bpp to
+<code>DISP_FORMAT_ARGB_8888</code> (<code>sunxi_fb_check_var</code>, 771-777). <strong>The fb layer is
+created with <code>alpha_mode = 0</code>, i.e. PER-PIXEL alpha</strong> (<code>display_fb_request</code>,
+~2288-2291: <code>mode = LAYER_MODE_BUFFER; zorder = 16; alpha_mode = 0;
+alpha_value = 0xff</code> — <code>alpha_value</code> is only used in modes 1 and 2).</p>
+<p><strong>So the display engine multiplies every pixel by its top byte.</strong> A pixel with
+<code>A = 0x00</code> is invisible, whatever its RGB. The stock GUI (LVGL, 32-bit colour)
+writes <code>0xFF</code>; an RFB client copying a server&rsquo;s bytes gets whatever the server
+put in a byte the protocol calls padding — usually <code>0x00</code>.</p>
+<p><strong>Rule: every 32-bpp write to this fb sets the alpha byte to 0xFF.</strong> A clear
+is <code>0xFF000000</code> (opaque black), not <code>memset 0</code> (transparent black, which lets
+anything below zorder 16 show through).</p>
+<h2 id="4-the-ioctls">4. The ioctls</h2>
+<table>
+<thead>
+<tr>
+<th>ioctl</th>
+<th>Number</th>
+<th>Arg</th>
+<th>What the kernel does</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FBIOGET_VSCREENINFO</code></td>
+<td><code>0x4600</code></td>
+<td><code>struct fb_var_screeninfo *</code></td>
+<td>geometry, bitfields, current <code>xoffset/yoffset</code></td>
+<td>standard; GUI <code>sunxifb_init</code></td>
+</tr>
+<tr>
+<td><code>FBIOGET_FSCREENINFO</code></td>
+<td><code>0x4602</code></td>
+<td><code>struct fb_fix_screeninfo *</code></td>
+<td><code>line_length</code>, <code>smem_len</code></td>
+<td>standard; GUI <code>sunxifb_init</code></td>
+</tr>
+<tr>
+<td><code>FBIOPAN_DISPLAY</code></td>
+<td><code>0x4606</code></td>
+<td><code>struct fb_var_screeninfo *</code> (set <code>xoffset</code>, <code>yoffset</code>)</td>
+<td>layer crop to the page; <strong>blocks for vsync</strong></td>
+<td>standard; driver 644-757; GUI <code>sunxifb_flush</code> (<code>movw r1,#0x4606</code>)</td>
+</tr>
+<tr>
+<td><strong><code>FBIO_CACHE_SYNC</code></strong></td>
+<td><strong><code>0x4630</code></strong></td>
+<td>any (ignored) — pass <code>unsigned long[2] = {0, smem_len}</code></td>
+<td>clean the WHOLE buffer to RAM</td>
+<td>driver 1104, 1367-1373; GUI <code>sunxifb_flush</code> (<code>movw r1,#0x4630</code>)</td>
+</tr>
+<tr>
+<td><strong><code>FBIO_ENABLE_CACHE</code></strong></td>
+<td><strong><code>0x4631</code></strong></td>
+<td><code>unsigned long[2]</code>, word 0 = <strong>1 enable / 0 disable</strong></td>
+<td>sets <code>mem_cache_flag[node]</code>; consumed by the NEXT <code>mmap</code></td>
+<td>driver 1105, 1359-1365; GUI <code>sunxifb_init</code> (<code>{1,0}</code>) and <code>sunxifb_exit</code> (<code>{0,0}</code>)</td>
+</tr>
+<tr>
+<td><code>FBIO_GET_IONFD</code></td>
+<td><code>0x4632</code></td>
+<td>—</td>
+<td>dma-buf fd of the allocation</td>
+<td>driver 1106 — <strong>not a cache op; do not use</strong></td>
+</tr>
+<tr>
+<td><code>FBIO_GET_PHY_ADDR</code></td>
+<td><code>0x4633</code></td>
+<td>—</td>
+<td>physical address</td>
+<td>driver 1107 — <strong>not needed; do not use</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>There is no <code>FBIO_DISABLE_CACHE</code>.</strong> Disable is <code>FBIO_ENABLE_CACHE</code> with word 0
+= <code>0</code>. <strong><code>0x4632</code> is not the flush</strong> — a client that used it would call
+<code>GET_IONFD</code> and never clean the cache.</p>
+<p>A standard toolchain&rsquo;s <code>linux/fb.h</code> does not define the sunxi numbers; define
+them in the client:</p>
+<pre><code class="language-c">#define FBIO_CACHE_SYNC     0x4630              // clean the whole fb to RAM
+#define FBIO_ENABLE_CACHE   0x4631              // word 0: 1 = cached mmap, 0 = uncached
+</code></pre>
+<h2 id="5-the-correct-lifecycle-and-per-frame-sequence">5. The correct lifecycle and per-frame sequence</h2>
+<pre><code>OPEN  (once)
+  1. open(&quot;/dev/fb0&quot;, O_RDWR)
+  2. FBIOGET_VSCREENINFO   -&gt; xres, yres, yres_virtual, bitfields (incl. transp), yoffset
+  3. FBIOGET_FSCREENINFO   -&gt; line_length, smem_len
+  4. FBIO_ENABLE_CACHE {1, 0}   *** BEFORE mmap ***   (best effort: log a -1, continue)
+  5. mmap(NULL, smem_len, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0)   -&gt; both pages
+  6. front page = (yoffset &gt;= yres) ? 1 : 0 ; back page = the other
+
+FRAME (per presented frame)
+  7. seed the back page from the front page (fb -&gt; fb memcpy; cached, so fast)
+  8. write pixels into the back page, alpha byte forced to 0xFF
+  9. FBIO_CACHE_SYNC {0, smem_len}   *** BEFORE the pan ***
+ 10. FBIOPAN_DISPLAY  with xoffset = 0, yoffset = back * yres,
+                      reserved[0..3] = {0, 0, xres, yres}, activate = FB_ACTIVATE_NOW
+                      (blocks until vsync; check the return value)
+ 11. swap: back &lt;-&gt; front
+
+CLOSE (once)
+ 12. FBIO_ENABLE_CACHE {0, 0}     (restore the boot default for whoever maps next)
+ 13. munmap ; close
+ 14. only now relaunch the stock GUI
+</code></pre>
+<p>This is the GUI&rsquo;s own order (<code>open</code> -&gt; <code>0x4602</code> -&gt; <code>0x4600</code> -&gt; <code>0x4631{1}</code> -&gt;
+<code>mmap</code> &hellip; per flush: <code>memcpy</code> -&gt; <code>0x4630</code> -&gt; <code>0x4606</code> &hellip; exit: <code>0x4631{0}</code>),
+with two additions a copying client needs: the alpha forcing (section 3) and
+the <code>reserved[]</code> fill (section 6).</p>
+<h2 id="6-page-flipping--what-the-pan-needs">6. Page flipping — what the pan needs</h2>
+<ul>
+<li>The two pages are the two halves of <code>smem_len</code>; the visible one is selected by
+  <code>yoffset</code> (0 or <code>yres</code>). The kernel programs <code>crop.y = yoffset</code>,
+  <code>crop.height = yres</code> — a clean flip, no copy.</li>
+<li><strong>The pan waits for vsync</strong> (<code>need_wait_vsync = 1</code>, <code>fb_wait_for_vsync</code>), so it
+  costs up to one frame period and cannot tear. Do not add a second wait.</li>
+<li><strong><code>reserved[0..3]</code> trap:</strong> under <code>CONFIG_SUNXI_DISP2_FB_ROTATION_SUPPORT</code>, if a
+  software-rotation layer (<code>mgr-&gt;rot_sw</code>) is active and <code>reserved[2]</code> or
+  <code>reserved[3]</code> is 0, the pan <strong>returns 0 without panning</strong> (682-690). A
+  rotate-0 panel almost certainly has <code>rot_sw</code> NULL — but a var copied from
+  <code>FBIOGET_VSCREENINFO</code> carries zeros there. Always set
+  <code>reserved = {0, 0, xres, yres}</code> before the pan: free when it does not matter,
+  correct when it does.</li>
+<li>One <code>FBIO_CACHE_SYNC</code> before the pan is enough for both pages (it cleans the
+  whole buffer), so seed-copy, blits and CopyRects in the back page are all
+  covered by the single flush.</li>
+</ul>
+<h2 id="7-rules">7. Rules</h2>
+<ol>
+<li><strong>One mapper at a time.</strong> <code>ENABLE_CACHE</code> at <code>mmap</code> rewrites the dma-buf&rsquo;s own
+   flag. Stop whatever process owns the display before opening (on the
+   reference device <code>killall -9 ec-eeb001-gui</code>, since it ignores SIGTERM); unmap
+   and close before relaunching it. <code>open()</code> will NOT fail while another process
+   holds the fb — fbdev has no exclusive lock — so the ordering is a discipline,
+   not something the kernel enforces.</li>
+<li><strong>Set the cache mode before <code>mmap</code>, every open.</strong> Never inherit it.</li>
+<li><strong>Cached + flush is the mode for a client that reads the fb</strong> (page seeding,
+   CopyRect). Uncached is only right for a write-only client with its own
+   shadow buffer.</li>
+<li><strong>Force alpha 0xFF on every write; clear to opaque black.</strong></li>
+<li><strong>Flush before every pan; pan after every flush.</strong> Never pan a page that has
+   not been cleaned since it was last written.</li>
+<li><strong>Check every ioctl&rsquo;s return and log <code>errno</code></strong> at least once — a silent <code>-1</code>
+   from <code>ENABLE_CACHE</code>, <code>CACHE_SYNC</code> or <code>PAN</code> is exactly how a black panel
+   becomes a mystery.</li>
+<li><strong>Do not use <code>FBIO_GET_IONFD</code>, <code>FBIO_GET_PHY_ADDR</code>, the <code>/dev/g2d</code> blitter or
+   the <code>FBIOGET_LAYER_HDL</code> family.</strong> The stock GUI uses G2D for rotation/blits;
+   a pixel-copy client needs none of it.</li>
+<li><strong>Do not change the mode</strong> (<code>FBIOPUT_VSCREENINFO</code>): the geometry and format
+   are read, never written.</li>
+</ol>
+<h2 id="8-diagnostics-that-settle-each-step-on-the-box">8. Diagnostics that settle each step on the box</h2>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>How to answer it without guessing</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Is the mapping cached?</td>
+<td>After <code>mmap</code>, <code>grep fb0 /proc/&lt;pid&gt;/maps</code> shows the VMA; the flag itself is only visible as behaviour — write a pattern, pan WITHOUT <code>CACHE_SYNC</code>: cached shows nothing, uncached shows it</td>
+</tr>
+<tr>
+<td>Did the flush run?</td>
+<td>log the <code>CACHE_SYNC</code> return (0) and <code>errno</code>; <code>-1 ENOTTY</code> means the number is wrong or ION is absent</td>
+</tr>
+<tr>
+<td>Did the pan take?</td>
+<td>log the <code>PAN</code> return; then <code>FBIOGET_VSCREENINFO</code> again — <code>yoffset</code> must equal what was requested</td>
+</tr>
+<tr>
+<td>Is alpha the problem?</td>
+<td>write a full-screen <code>0xFFFF0000</code> (opaque red) vs <code>0x00FF0000</code>: only the first shows under pixel alpha</td>
+</tr>
+<tr>
+<td>Which page is on screen?</td>
+<td><code>FBIOGET_VSCREENINFO</code>&rsquo;s <code>yoffset</code></td>
+</tr>
+<tr>
+<td>Is the previous owner really dead?</td>
+<td><code>ps w</code> (busybox has no <code>pgrep -x</code>); <code>pgrep -f</code> can match a transient <code>ash</code> wrapper</td>
+</tr>
+<tr>
+<td>Is the panel dark because the backlight is off?</td>
+<td><code>cat /sys/class/disp/disp/attr/sys</code> and read the <code>backlight(N)</code> figure on the <code>lcd output</code> line (section 11); 0 means off, whatever the framebuffer holds</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9-open-items-and-caveats">9. Open items and caveats</h2>
+<ul>
+<li><strong>No public sun8iw20 linux-5.4 tree</strong> was located; the numbering is confirmed
+  by two-axis agreement plus the device&rsquo;s own GUI binary (section 0).</li>
+<li><strong><code>FBIO_CACHE_SYNC</code> arg:</strong> ignored on the sun8iw20/4.9 handler; the GUI passes
+  a 2-word <code>{offset, size}</code> anyway. Passing <code>{0, smem_len}</code> satisfies both a
+  handler that ignores it and one that honours it.</li>
+<li><strong><code>rot_sw</code>:</strong> not expected on a rotate-0 panel; the <code>reserved[]</code> fill covers
+  the case regardless.</li>
+<li><strong><code>CONFIG_ION_SUNXI</code>:</strong> the cache handlers are compiled only with it. The GUI&rsquo;s
+  <code>SunxiMemFlushCache</code> / <code>/dev/g2d</code> use shows ION is present on this firmware.</li>
+</ul>
+<h2 id="10-minimal-annotated-c-the-sequence-not-a-module">10. Minimal annotated C (the sequence, not a module)</h2>
+<pre><code class="language-c">/* Open: read geometry, choose the cache mode BEFORE mapping. */
+fd = open(&quot;/dev/fb0&quot;, O_RDWR);
+ioctl(fd, FBIOGET_VSCREENINFO, &amp;var);           /* e.g. xres 532, yres 300, yres_virtual 600 */
+ioctl(fd, FBIOGET_FSCREENINFO, &amp;fix);           /* e.g. line_length 2128, smem_len 1276800 */
+au[0] = 1; au[1] = 0;
+rc = ioctl(fd, FBIO_ENABLE_CACHE, au);          /* cached mapping from here on; log rc */
+mem = mmap(NULL, fix.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+back = (var.yoffset &gt;= var.yres) ? 0 : 1;       /* draw into the page NOT on screen */
+
+/* Frame: seed, draw with alpha, clean, flip. */
+memcpy(mem + off[back], mem + off[1 - back], var.yres * fix.line_length);
+/* ... write pixels into mem + off[back], OR-ing 0xFF000000 into every word ... */
+region[0] = 0; region[1] = fix.smem_len;
+rc = ioctl(fd, FBIO_CACHE_SYNC, region);        /* whole-buffer clean; log rc */
+var.xoffset = 0; var.yoffset = back * var.yres;
+var.reserved[0] = 0; var.reserved[1] = 0; var.reserved[2] = var.xres; var.reserved[3] = var.yres;
+var.activate = FB_ACTIVATE_NOW;
+rc = ioctl(fd, FBIOPAN_DISPLAY, &amp;var);          /* blocks for vsync; log rc */
+back = 1 - back;
+
+/* Close: restore the default mode, then release; only then relaunch the GUI. */
+au[0] = 0; au[1] = 0;
+ioctl(fd, FBIO_ENABLE_CACHE, au);
+munmap(mem, fix.smem_len);
+close(fd);
+</code></pre>
+<h2 id="11-brightness-backlight-and-blanking--not-fbdevrsquos-business-here">11. Brightness, backlight and blanking — not fbdev&rsquo;s business here</h2>
+<p>On this driver the backlight belongs to the display-engine driver, not to fbdev
+and not to a <code>/sys/class/backlight</code> device (that class is empty on the reference
+device). The controls, read from the device&rsquo;s own GUI binary and the driver&rsquo;s
+sysfs, the set and get ioctls since exercised live by the reference client:</p>
+<ul>
+<li><strong>Brightness is set and read through <code>/dev/disp</code></strong> (character device 244,0,
+  root only). Set: <code>ioctl(fd, 0x102 /* DISP_LCD_SET_BRIGHTNESS */, arg)</code> with
+  <code>unsigned long arg[4] = { screen, brightness, 0, 0 }</code>, screen 0 and brightness
+  0..255. Get: <code>ioctl(fd, 0x103 /* DISP_LCD_GET_BRIGHTNESS */, arg)</code> with
+  <code>arg[0] = screen</code>, the value coming back as the ioctl&rsquo;s return value. The
+  GUI&rsquo;s &ldquo;screen off&rdquo; is brightness 0 through the same set call. The layout is
+  read from the GUI&rsquo;s <code>screen_brightness_set</code>: <code>add r2, sp, #4</code> (the array),
+  <code>movw r1, #0x102</code>, <code>stmib sp, {r4, r5}</code> storing <code>{0, value}</code> into it.</li>
+<li><strong>The disp2 ioctl table also carries <code>0x104</code> / <code>0x105</code>,
+  <code>DISP_LCD_BACKLIGHT_ENABLE</code> / <code>DISP_LCD_BACKLIGHT_DISABLE</code></strong>, the pair that
+  sits beside the brightness calls in every sunxi disp2 tree; the GUI does not
+  use them and they were not tried here.</li>
+<li><strong>The current value is visible read-only</strong> in <code>/sys/class/disp/disp/attr/sys</code>:
+  the <code>lcd output</code> line reads <code>backlight(175)</code> on the reference device at its
+  default setting.</li>
+<li><strong><code>/sys/class/pwm/pwmchip0</code> is the SoC&rsquo;s <code>2000c00.pwm</code> (8 channels) with
+  <code>pwm0</code> exported, but its sysfs values do not track the backlight</strong> - they
+  read the same with the panel lit and dark (below), so the driver&rsquo;s backlight
+  path is not observable there. Leave it alone; the ioctls above are the
+  interface and the disp attribute is the indicator.</li>
+<li><strong><code>/sys/class/graphics/fb0/blank</code></strong> exists and is writable (the fbdev blank
+  hook; the GUI opens a &ldquo;screen blank device&rdquo; as well), but reading it returns
+  nothing, so the disp attribute above is the reliable statement of the state.</li>
+</ul>
+<p><strong>The two states, measured on the reference device</strong>: dark after its GUI&rsquo;s
+idle timeout (about thirty minutes, no glow at all), then lit again after a
+tap woke it:</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Panel lit</th>
+<th>Panel dark</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lcd output</code> line in <code>/sys/class/disp/disp/attr/sys</code></td>
+<td><code>backlight(175)</code></td>
+<td><code>backlight(  0)</code></td>
+</tr>
+<tr>
+<td><code>mgr0</code> state in the same attribute</td>
+<td><code>unblank</code></td>
+<td><code>unblank</code> - the display pipeline keeps running, the layer stays enabled at pixel alpha 255</td>
+</tr>
+<tr>
+<td><code>pwm0/enable</code>, <code>duty_cycle</code>, <code>period</code>, <code>polarity</code></td>
+<td><code>0</code>, <code>166666</code>, <code>333333</code>, <code>normal</code></td>
+<td><strong>identical</strong> - this sysfs channel does not reflect the backlight</td>
+</tr>
+<tr>
+<td><code>/sys/class/graphics/fb0/blank</code></td>
+<td>reads empty</td>
+<td>reads empty - fbdev blanking is not used</td>
+</tr>
+<tr>
+<td>framebuffer contents (visible page, 159 600 pixels)</td>
+<td>the GUI&rsquo;s frame, every pixel non-black</td>
+<td><strong>every pixel opaque black</strong></td>
+</tr>
+<tr>
+<td>kernel log</td>
+<td>-</td>
+<td>nothing new</td>
+</tr>
+</tbody>
+</table>
+<p>So the only observable of the backlight is the disp attribute, and the GUI
+clears its frame to black before going dark and redraws it on waking. <strong>The
+backlight value survives the GUI being killed</strong>: a client that takes over a
+panel the GUI had already turned off draws into a black, unlit screen, and
+nothing it writes to the framebuffer can be seen until brightness is set again
+through <code>/dev/disp</code>.</p>
+<p>A framebuffer client that wants to dim, darken or wake the panel therefore does
+it with one ioctl on <code>/dev/disp</code>, not through the framebuffer at all; a black
+framebuffer and a backlight at 0 look the same from the front and are told
+apart with the diagnostic row in section 8.</p>
+<p><strong>What a client that takes the panel over should do</strong>, as the reference
+client does:</p>
+<ol>
+<li>At takeover, read the brightness (<code>0x103</code>); if it is 0, set a usable level
+   (<code>0x102</code>; the reference device&rsquo;s factory level is 175), otherwise leave it.</li>
+<li>At exit, put back a lit level it changed, but never hand back 0: a panel
+   found dark and lit stays lit, because the next owner may not light it.</li>
+<li>Optionally, carry the remote desktop&rsquo;s own blanking to the panel: when every
+   visible pixel of a presented frame has been black for a timeout (a minute is
+   a reasonable default), set brightness 0; on the first presented frame with
+   any colour, and at exit, set the lit level back. The link carries only
+   pixels, so the black frame is the only signal a plain RFB server gives.
+   Touch still reaches the server while the panel is dark, which is what wakes
+   the desktop.</li>
+<li>Expose the same set call as a one-shot command, so a host that knows the
+   desktop&rsquo;s state can drive the panel over ssh beside the running client.</li>
+</ol>
+</body>
+</html>

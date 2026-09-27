@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PrimeVNC - framebuffer VNC client for Allwinner sunxi Linux devices</title>
+<style>
+
+body { font-family: Arial, sans-serif; font-size: 11pt; margin: 1in;
+       line-height: 1.4; max-width: 7.5in; color: #1a1a1a; }
+h1 { font-size: 18pt; color: #1a1a1a; border-bottom: 2px solid #333;
+     padding-bottom: 4pt; margin-top: 24pt; }
+h1:first-child { margin-top: 0; }
+h2 { font-size: 14pt; color: #1a1a1a; margin-top: 22pt;
+     border-bottom: 1px solid #999; padding-bottom: 2pt; }
+h3 { font-size: 12pt; color: #333; margin-top: 16pt; }
+h4 { font-size: 11pt; color: #333; margin-top: 12pt; margin-bottom: 4pt; }
+p  { margin: 6pt 0; }
+pre { background-color: #f0f0f0; border: 1px solid #ccc; padding: 8pt;
+      font-family: Consolas, monospace; font-size: 9.5pt; white-space: pre;
+      overflow-x: auto; line-height: 1.25; }
+code { font-family: Consolas, monospace; font-size: 10pt;
+       background-color: #f0f0f0; padding: 1pt 3pt; border-radius: 2px; }
+pre code { background-color: transparent; padding: 0; font-size: 9.5pt; }
+p.note, div.note { background-color: #fff3cd; border-left: 4px solid #ffc107;
+                   padding: 6pt 10pt; margin: 8pt 0; }
+p.important, div.important { background-color: #f8d7da;
+                             border-left: 4px solid #dc3545;
+                             padding: 6pt 10pt; margin: 8pt 0; }
+p.summary, div.summary { background-color: #d1ecf1;
+                         border-left: 4px solid #0c5460;
+                         padding: 6pt 10pt; margin: 8pt 0; }
+ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+li { margin-bottom: 4pt; }
+li > ul, li > ol { margin-top: 4pt; margin-bottom: 4pt; }
+/* Indented outline body. Use in markdown as:
+   <div class="indent" markdown="1"> ...markdown incl. code fences... </div>
+   (the md_in_html extension processes markdown inside the div). */
+div.indent { margin: 4pt 0 8pt 2em; }
+div.indent > :first-child { margin-top: 0; }
+div.indent > :last-child  { margin-bottom: 0; }
+table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+td, th { border: 1px solid #999; padding: 4pt 8pt; font-size: 10pt;
+         vertical-align: top; }
+th { background-color: #e0e0e0; text-align: left; }
+tr:nth-child(even) td { background-color: #f7f7f7; }
+a  { color: #1e3a8a; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #999; margin: 16pt 0; }
+strong { color: #1a1a1a; }
+img { max-width: 100%; height: auto; }
+
+.doc-meta { color: #555; font-size: 10pt; margin-top: -6pt;
+            margin-bottom: 12pt; }
+.toc { background-color: #f7f7f7; border: 1px solid #ccc;
+       padding: 10pt 14pt; margin: 16pt 0 24pt; font-size: 10.5pt; }
+.toc h2 { font-size: 12pt; margin-top: 0; margin-bottom: 6pt; border: none;
+          color: #333; }
+.toc ul { margin: 0; padding-left: 20pt; }
+.toc li { margin-bottom: 2pt; }
+.toc a { color: #1e3a8a; }
+
+@media print {
+  body { margin: 0.75in; }
+  pre, table, div.note, div.important { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+</style>
+</head>
+<body>
+<h1>PrimeVNC - framebuffer VNC client for Allwinner sunxi Linux devices</h1>
+<div class="toc">
+<h2>Contents</h2>
+<ul>
+  <li><a href="#current-state-what-is-done">Current state (what is done)</a></li>
+  <li><a href="#layout">Layout</a></li>
+  <li><a href="#building">Building</a></li>
+  <li><a href="#command-line">Command line</a></li>
+  <li><a href="#how-a-launcher-drives-it-the-reference-deploymentrsquos-lifecycle">How a launcher drives it (the reference deployment&rsquo;s lifecycle)</a></li>
+  <li><a href="#development-status">Development status</a></li>
+  <li><a href="#confirmed-facts-reference-device">Confirmed facts (reference device)</a></li>
+</ul>
+</div>
+<p>PrimeVNC is a small, dependency-free RFB (VNC) <strong>client</strong> for embedded Linux
+devices whose display is a bare framebuffer: it connects to a VNC server on
+another machine, draws the remote framebuffer to <code>/dev/fb0</code>, and forwards the
+device&rsquo;s touchscreen (<code>/dev/input/eventN</code>) back as RFB PointerEvents. It is a
+pure sink/source: pixels in, touch out. Pure C99, no external libraries, one
+static ELF. The only hardware-specific code is <code>framebuffer.c</code> (the Allwinner
+sunxi disp2 driver&rsquo;s cache and alpha rules, written up in
+<code>SUNXI_FB_INTERFACE.md</code>) and <code>input.c</code> (evdev), so it adapts easily to another
+fbdev platform. Everything - target, port, password, devices, rotation, the
+reconnect policy - is given on the command line.</p>
+<p><strong>Reference device.</strong> The client was developed on an Allwinner sun8iw20
+(T113 / R528) device: two Cortex-A7 cores, ARMv7-A hard-float, a Linux 5.4
+kernel with the sunxi disp2 framebuffer driver, and a 532x300, 32 bpp touch
+panel. That panel is the reference device throughout this tree. In its
+original deployment the VNC server exports a touch-driven user interface from
+a host on the same LAN, and the client turns the device&rsquo;s own panel into that
+interface&rsquo;s screen while the host is running.</p>
+<p><strong>Status: proven on the reference device in two live sessions.</strong> The first
+proved the protocol, exact pixels in framebuffer memory and the touch
+round-trip, and exposed the two framebuffer facts that kept the panel black;
+the second, with those fixed, showed animated content moving smoothly on the
+panel with taps landing where touched. Nothing on the device was modified or
+flashed: the client ran from a temporary directory, and the program that owns
+the display was only stopped and relaunched by the wrapper around it.</p>
+<hr />
+<h2 id="current-state-what-is-done">Current state (what is done)</h2>
+<ul>
+<li><strong>Complete C client</strong>, pure C99, <strong>zero external libraries</strong> (rolled-own DES and
+  RFB), single-threaded <code>poll()</code> control loop.</li>
+<li><strong>Builds clean</strong> (0 warnings, <code>-Wall -Wextra -Wshadow -Wpointer-arith</code>) for:</li>
+<li><strong><code>armhf</code></strong> - the deployment target: <code>arm-linux-gnueabihf-gcc</code> 13.3.0,
+    <code>-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -static</code>. Verified:
+    <code>ELF 32-bit ARM EABI5, statically linked</code>; <code>Tag_CPU_arch: v7</code>, <code>Tag_FP_arch:
+    VFPv4</code>, <code>Tag_ABI_VFP_args: VFP registers</code>; <strong>no <code>NEEDED</code> entries</strong> (fully
+    static) - exactly the reference device&rsquo;s ABI.</li>
+<li><strong><code>native</code></strong> - x86-64, for developing the RFB core off-hardware.</li>
+<li><strong>The DES engine passes its known-answer tests</strong> (the textbook FIPS-46
+  vector and the VNC key-wrapper check).</li>
+<li><strong>The protocol core is verified end to end</strong> against a VNC server serving a
+  known pixel pattern: version 3.8 handshake, VNC authentication, pixel-format
+  negotiation, a full RAW frame decoded to exact pixels, a pointer round-trip,
+  and the heartbeat request answered.</li>
+<li><strong>Proven live on the reference device:</strong> the static binary runs on it, opens
+  <code>/dev/fb0</code>, autodetects the touch panel, connects over the LAN, authenticates,
+  negotiates RFB 3.8, decodes RAW frames to EXACT pixels in framebuffer memory,
+  and touch round-trips to the server at the right coordinates.</li>
+<li><strong>The panel stayed black in the first live session</strong>, for two independent
+  reasons found by a driver-side review of every file, both fixed in
+  <code>framebuffer.c</code>: the fb mapping&rsquo;s cache mode is decided at <code>mmap</code> from a
+  kernel flag the killed display owner left set (so writes never reached
+  RAM), and the fb layer is per-pixel alpha while every pixel written carried
+  alpha 0x00. The correct way to drive this framebuffer is written up once,
+  in <code>SUNXI_FB_INTERFACE.md</code>.</li>
+</ul>
+<p>Static linking is safe here because the client does <strong>no name resolution</strong> (it is
+handed a numeric IP), so glibc&rsquo;s NSS static-link hazard never applies.</p>
+<hr />
+<h2 id="layout">Layout</h2>
+<pre><code>PrimeVNC/
+  README.md                      this file
+  LICENSE                        GPL-2.0-or-later, Copyright (c) 2026 B. C. Services
+  GPL-2.0.txt                    the licence's full text, verbatim from the FSF
+  BUILDING.md (+.html)           build guide: tools with download links, targets, checks
+  SUNXI_FB_INTERFACE.md (+.html) the correct /dev/fb0 sequence on this part (reference)
+  build.sh                       build script: armhf | native
+  .gitignore                     excludes build/ (binaries are not committed)
+  src/
+    primevnc.h         shared config struct, TRUE/FALSE/SUCCESS/FAILURE, version
+    log.h  log.c       error-only stderr logging (+ --verbose diagnostics)
+    net.h  net.c       numeric-IPv4 TCP (no DNS), bounded connect, deadline reads
+    des.h  des.c       single-block DES + VNC key bit-reversal (RFC 6143 7.2.2)
+    pixfmt.h pixfmt.c  pixel-format descriptor + fast-path test + converter
+    framebuffer.h .c   /dev/fb0: cache mode, alpha forcing, page flip, blit, CopyRect, backlight
+    input.h  input.c   evdev touch (single + multitouch B), ABS-&gt;screen mapping
+    rfb.h  rfb.c       RFB 3.8 client: handshake, auth, updates, heartbeat, pointer
+    main.c             CLI, control loop, liveness rule, reconnect, exit codes
+  build/               build outputs (git-ignored)
+</code></pre>
+<hr />
+<h2 id="building">Building</h2>
+<p><strong><code>BUILDING.md</code> is the build guide</strong>: the toolchains with download links, every
+target, the flags and how to adapt them, the expected verification output, and
+a troubleshooting table. In short, in a Linux environment with the compilers
+installed, from this directory:</p>
+<pre><code class="language-bash">bash build.sh            # static armhf ARMv7 -&gt; build/primevnc-armhf   (default)
+bash build.sh native     # x86-64 host build  -&gt; build/primevnc-native
+</code></pre>
+<p>The armhf build runs <code>file</code> and <code>readelf -A</code> / <code>-d</code> afterwards to confirm the ABI
+and that the binary is static.</p>
+<h3>Toolchain</h3>
+<ul>
+<li><strong>Required:</strong> <code>arm-linux-gnueabihf-gcc</code> (13.3.0 tested) with a static C
+  library, and its binutils (<code>readelf</code>); native <code>gcc</code> for the host build.</li>
+<li><strong>Optional, not needed to build:</strong> <code>qemu-user-static</code>, to run the armhf
+  binary on the build machine (the framebuffer and touch devices do not exist
+  under user-mode emulation, so a full run needs the device); an
+  <code>arm-linux-musleabihf</code> toolchain for a smaller fully-static binary (glibc
+  static is the tested configuration).</li>
+</ul>
+<hr />
+<h2 id="command-line">Command line</h2>
+<pre><code>primevnc &lt;server-ip&gt; [options]
+  --port N               RFB port (default 5900)
+  --fb PATH              framebuffer device (default /dev/fb0)
+  --input PATH          evdev touch node (default: autodetect)
+  --password P          VNC password on the command line (visible in ps)
+  --password-env NAME   read the VNC password from env var NAME
+  --password-fd N       read the VNC password from file descriptor N
+  --rotate 0|90|180|270 rotate touch mapping to the panel (default 0)
+  --reconnect-max N     reconnect attempts; -1 = forever (default 10)
+  --reconnect-delay MS  base reconnect backoff (default 1000)
+  --backlight on|off|keep|N
+                        panel brightness at takeover (default on): on = light it
+                        if dark, off = dark, keep = leave it, N = level 1..255;
+                        a lit level this program changed is restored at exit
+  --backlight-auto off|on|S
+                        turn the panel off after S seconds of an all-black frame
+                        (on = 60) and back on at the first lit frame (default off)
+  --backlight-set on|off|N
+                        set the brightness and exit at once - no server, no
+                        session; for a host driving the panel over ssh while a
+                        client runs
+  -v, --verbose         diagnostic logging to stderr
+  -h, --help / --version
+</code></pre>
+<h3>The backlight</h3>
+<p>The panel&rsquo;s brightness is not the framebuffer&rsquo;s: on the sunxi disp2 driver it
+is set through <code>/dev/disp</code>, and the value survives whatever process last owned
+the display. The reference device&rsquo;s stock user interface turns the panel off
+after about thirty idle minutes (brightness 0, frame cleared to black), so a
+client that takes over such a panel would draw into an unlit screen. Three
+controls, all in <code>framebuffer.c</code> (<code>SUNXI_FB_INTERFACE.md</code> section 11 has the
+driver facts):</p>
+<ul>
+<li><strong><code>--backlight</code></strong> is the takeover policy. <code>on</code> (the default) reads the
+  brightness and lights a dark panel at the reference device&rsquo;s factory level,
+  leaving a lit one at its own level; <code>off</code> and a level exist for tests; <code>keep</code>
+  touches nothing. At exit the client restores a lit level it changed, and
+  never hands back a dark panel: one it found dark and lit stays lit.</li>
+<li><strong><code>--backlight-auto</code></strong> carries a remote desktop&rsquo;s own screen blanking to the
+  panel over a link that carries only pixels: when every pixel of a presented
+  frame has been black for the timeout, the panel goes dark; the first frame
+  with any colour brings it back to the level lit at takeover, and so does
+  exit. A tap on the dark panel still reaches the server, which is what wakes
+  a sleeping desktop. The check runs once per control-loop pass, so the panel
+  darkens within one idle poll period (8 s) of the timeout.</li>
+<li><strong><code>--backlight-set</code></strong> is a one-shot for the host: it sets the brightness and
+  exits without opening the framebuffer, the touch device or a socket, so it
+  can run over ssh beside a live client whenever the host knows better than
+  the black-frame rule that the desktop went to sleep or woke.</li>
+</ul>
+<p>The password may be given bare with <code>--password</code>, or through an env var or an fd
+for a launcher that prefers to keep it out of <code>ps</code>. The link is plain RFB with
+VNC authentication and no transport encryption, which suits a trusted LAN and
+nothing else; how the deployment chooses and stores the password is the
+launcher&rsquo;s business, not the client&rsquo;s.</p>
+<hr />
+<h2 id="how-a-launcher-drives-it-the-reference-deploymentrsquos-lifecycle">How a launcher drives it (the reference deployment&rsquo;s lifecycle)</h2>
+<p>The device boots to its own stock user interface - a bare framebuffer
+application, launched by the device&rsquo;s init with no respawn - and is fully
+usable standalone. The remote interface is an optional, transient overlay that
+exists only while the host is running. When the host enables it, at startup
+it:</p>
+<ol>
+<li>determines its own IP as seen by the device (the SSH connection&rsquo;s source
+   address);</li>
+<li>logs in over SSH as root and stops the program that owns the display
+   (<code>killall -9 &lt;its name&gt;</code>; on the reference device that program ignores
+   SIGTERM) to free <code>/dev/fb0</code> and the input device;</li>
+<li>copies this binary to a writable location on the device if it is missing or
+   stale, and makes it executable;</li>
+<li>starts its VNC server locally, then launches the client backgrounded
+   through a wrapper that relaunches the display owner whenever the client
+   exits, for any exit code: <code>primevnc &lt;host-ip&gt; --password ... ; &lt;relaunch
+   the display owner&gt;</code>. The relaunch must give that program the environment
+   the device&rsquo;s init gives it - its library path, its <code>PATH</code>, its <code>HOME</code> -
+   with stdio on <code>/dev/null</code> and backgrounded; a bare relaunch from an ssh
+   command shell can fail silently because that shell lacks those variables.</li>
+</ol>
+<p>On a <strong>clean stop</strong> the host runs <code>killall primevnc</code> and the wrapper relaunches
+the display owner. On an <strong>unclean loss</strong> the client detects it and exits after
+its bounded reconnect backoff, and the same wrapper brings the display owner
+back - so the device returns to a usable interface with no cleanup from the
+host. <strong>The client itself knows nothing about that program</strong>: it never stops or
+starts another process. It exits with a distinct code (2 no framebuffer, 3 no
+touch device, 1 usage error, 0 after a clean stop or exhausted reconnects) and
+the wrapper does the rest, so a failed start never leaves the panel dead
+either.</p>
+<p>How a lost server is detected: a connect attempt is bounded at 5 s (a dropped SYN
+does not park the client for minutes); every read has one deadline for the
+whole message; and when the link is idle for 8 s the client sends a heartbeat -
+a non-incremental 1x1 update request, which a server MUST answer - and gives the
+session up after three heartbeats in a row go unanswered (about 32 s), which
+catches a host that vanished without a FIN/RST. Reconnects that follow an
+established session start a fresh attempt count, so a kiosk survives any number
+of host restarts.</p>
+<p><strong>Not autorun:</strong> nothing is added to the device&rsquo;s init.</p>
+<hr />
+<h2 id="development-status">Development status</h2>
+<table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Live probes of the reference device: fb geometry and format, touch axes and rotation, the present model</td>
+<td><strong>done</strong> (facts below)</td>
+</tr>
+<tr>
+<td>RFB core: connect, VNC authentication, RAW decode, pointer, heartbeat</td>
+<td><strong>done</strong>, verified end to end against a test server</td>
+</tr>
+<tr>
+<td>fbdev and evdev integration</td>
+<td><strong>done</strong>, exercised on the device</td>
+</tr>
+<tr>
+<td>Static armhf cross build with <code>readelf</code> checks</td>
+<td><strong>done</strong></td>
+</tr>
+<tr>
+<td>Live deployment on the reference device with the display owner stopped</td>
+<td><strong>done</strong>, twice: protocol, pixels in memory and touch; then the panel itself, with animated content and taps</td>
+</tr>
+<tr>
+<td>Host-side integration: IP discovery, launch, cleanup, display hand-back, sleep and wake forwarded to the panel</td>
+<td>the launcher&rsquo;s job, outside this tree (the section above is its contract)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="confirmed-facts-reference-device">Confirmed facts (reference device)</h2>
+<p>Everything below was measured on the device or read from the driver source;
+<code>SUNXI_FB_INTERFACE.md</code> carries the sources line by line.</p>
+<ul>
+<li><strong>Framebuffer:</strong> <code>/dev/fb0</code>, 532x300 visible, 532x600 virtual (two pages),
+  32 bpp, memory order B,G,R,A with a LIVE alpha byte (<code>transp 24/8</code>, per-pixel
+  alpha layer). The client requests exactly this format from the server, forces
+  alpha 0xFF on every pixel it writes, draws into the back page and presents
+  with <code>FBIOPAN_DISPLAY</code>.</li>
+<li><strong>Cache mode:</strong> the sunxi driver decides whether a mapping is cached from a
+  kernel flag at <code>mmap</code> time. The client sets <code>FBIO_ENABLE_CACHE {1,0}</code> BEFORE
+  <code>mmap</code>, runs <code>FBIO_CACHE_SYNC</code> before every pan, and resets the flag at close.</li>
+<li><strong>Touch:</strong> <code>/dev/input/event0</code>, driver <code>sitronix_ts_i2c</code>, absolute axes
+  X[0..531] Y[0..299] (1:1 with the panel), rotation 0. Autodetect prefers a
+  device that declares a touch signature (<code>INPUT_PROP_DIRECT</code> or <code>BTN_TOUCH</code>)
+  and logs the driver&rsquo;s name.</li>
+<li><strong>Display owner stop and relaunch (outside the client):</strong> <code>killall -9</code> of
+  the stock interface before; after, from <code>/</code>, the same program started with
+  the environment the device&rsquo;s init gives it (its library path, a <code>PATH</code> that
+  includes its own directory, its <code>HOME</code>), stdio on <code>/dev/null</code>, backgrounded.
+  A bare relaunch fails from an ssh command shell, whose <code>PATH</code> and
+  environment lack what the program needs to load its libraries. The client
+  has no knowledge of either step; the launcher&rsquo;s wrapper does both.</li>
+<li><strong>Link:</strong> RAW at 532x300 over a wired LAN is comfortable; add Zlib (a static
+  zlib) only if a link ever proves bandwidth-bound.</li>
+<li><strong>Backlight:</strong> brightness 0..255 through <code>/dev/disp</code> ioctl <code>0x102</code> (set) and
+  <code>0x103</code> (get), argument <code>{screen 0, value, 0, 0}</code>; the stock interface&rsquo;s
+  idle-off is brightness 0 plus a black frame, the factory level is 175, and
+  the value is visible read-only as <code>backlight(N)</code> in
+  <code>/sys/class/disp/disp/attr/sys</code>. The three <code>--backlight*</code> options above
+  drive it - all three proven on the device: the one-shot took the panel to 0
+  and back to 175 under a running client; <code>--backlight-auto 20</code> darkened the
+  panel 20 s into a black screen and re-lit it on the first lit frame after a
+  server restart; the driver&rsquo;s reading, the client&rsquo;s log and the panel agreed
+  at every step.</li>
+</ul>
+<p>Building and deploying the binary are <code>BUILDING.md</code>&rsquo;s subject; every step that
+touches a device is the deployment&rsquo;s own decision.</p>
+<hr />
+<p>PrimeVNC is free software under the GNU General Public License, version 2 or
+later: <code>LICENSE</code> beside this file carries the terms and <code>GPL-2.0.txt</code> the full
+text, and every source file names them in its header.</p>
+<p>Static analysis, host builds, and live sessions on the reference device;
+nothing on the device was modified or flashed.</p>
+</body>
+</html>
