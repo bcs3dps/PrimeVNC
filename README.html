@@ -139,26 +139,92 @@ the display was only stopped and relaunched by the wrapper around it.</p>
 handed a numeric IP), so glibc&rsquo;s NSS static-link hazard never applies.</p>
 <hr />
 <h2 id="layout">Layout</h2>
-<pre><code>PrimeVNC/
-  README.md                      this file
-  LICENSE                        GPL-2.0-or-later, Copyright (c) 2026 B. C. Services
-  GPL-2.0.txt                    the licence's full text, verbatim from the FSF
-  BUILDING.md (+.html)           build guide: tools with download links, targets, checks
-  SUNXI_FB_INTERFACE.md (+.html) the correct /dev/fb0 sequence on this part (reference)
-  build.sh                       build script: armhf | native
-  .gitignore                     excludes build/ (binaries are not committed)
-  src/
-    primevnc.h         shared config struct, TRUE/FALSE/SUCCESS/FAILURE, version
-    log.h  log.c       error-only stderr logging (+ --verbose diagnostics)
-    net.h  net.c       numeric-IPv4 TCP (no DNS), bounded connect, deadline reads
-    des.h  des.c       single-block DES + VNC key bit-reversal (RFC 6143 7.2.2)
-    pixfmt.h pixfmt.c  pixel-format descriptor + fast-path test + converter
-    framebuffer.h .c   /dev/fb0: cache mode, alpha forcing, page flip, blit, CopyRect, backlight
-    input.h  input.c   evdev touch (single + multitouch B), ABS-&gt;screen mapping
-    rfb.h  rfb.c       RFB 3.8 client: handshake, auth, updates, heartbeat, pointer
-    main.c             CLI, control loop, liveness rule, reconnect, exit codes
-  build/               build outputs (git-ignored)
-</code></pre>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>README.md</code> (+ <code>.html</code>)</td>
+<td>this file</td>
+</tr>
+<tr>
+<td><code>LICENSE</code></td>
+<td>GPL-2.0-or-later, Copyright (c) 2026 B. C. Services</td>
+</tr>
+<tr>
+<td><code>GPL-2.0.txt</code></td>
+<td>the licence&rsquo;s full text, verbatim from the FSF</td>
+</tr>
+<tr>
+<td><code>BUILDING.md</code> (+ <code>.html</code>)</td>
+<td>build guide: tools with download links, targets, checks</td>
+</tr>
+<tr>
+<td><code>SUNXI_FB_INTERFACE.md</code> (+ <code>.html</code>)</td>
+<td>the correct <code>/dev/fb0</code> sequence on this part (reference)</td>
+</tr>
+<tr>
+<td><code>build.sh</code></td>
+<td>build script: <code>armhf</code> | <code>native</code></td>
+</tr>
+<tr>
+<td><code>primevnc-run.sh</code></td>
+<td>sample launcher: stop the stock UI and run the client</td>
+</tr>
+<tr>
+<td><code>primevnc-restore-ui.sh</code></td>
+<td>sample: restart the stock UI when the session ends</td>
+</tr>
+<tr>
+<td><code>.gitignore</code></td>
+<td>excludes <code>build/</code> (binaries are not committed)</td>
+</tr>
+<tr>
+<td><code>src/primevnc.h</code></td>
+<td>shared config struct, TRUE/FALSE/SUCCESS/FAILURE, version</td>
+</tr>
+<tr>
+<td><code>src/log.{h,c}</code></td>
+<td>error-only stderr logging (+ <code>--verbose</code> diagnostics)</td>
+</tr>
+<tr>
+<td><code>src/net.{h,c}</code></td>
+<td>numeric-IPv4 TCP (no DNS), bounded connect, deadline reads</td>
+</tr>
+<tr>
+<td><code>src/des.{h,c}</code></td>
+<td>single-block DES + VNC key bit-reversal (RFC 6143 7.2.2)</td>
+</tr>
+<tr>
+<td><code>src/pixfmt.{h,c}</code></td>
+<td>pixel-format descriptor + fast-path test + converter</td>
+</tr>
+<tr>
+<td><code>src/framebuffer.{h,c}</code></td>
+<td><code>/dev/fb0</code>: cache mode, alpha forcing, page flip, blit, CopyRect, backlight</td>
+</tr>
+<tr>
+<td><code>src/input.{h,c}</code></td>
+<td>evdev touch (single + multitouch B), ABS-&gt;screen mapping</td>
+</tr>
+<tr>
+<td><code>src/rfb.{h,c}</code></td>
+<td>RFB 3.8 client: handshake, auth, updates, heartbeat, pointer</td>
+</tr>
+<tr>
+<td><code>src/main.c</code></td>
+<td>CLI, control loop, liveness rule, reconnect, exit codes</td>
+</tr>
+<tr>
+<td><code>build/</code></td>
+<td>build outputs (git-ignored)</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="building">Building</h2>
 <p><strong><code>BUILDING.md</code> is the build guide</strong>: the toolchains with download links, every
@@ -182,30 +248,84 @@ and that the binary is static.</p>
 </ul>
 <hr />
 <h2 id="command-line">Command line</h2>
-<pre><code>primevnc &lt;server-ip&gt; [options]
-  --port N               RFB port (default 5900)
-  --fb PATH              framebuffer device (default /dev/fb0)
-  --input PATH          evdev touch node (default: autodetect)
-  --password P          VNC password on the command line (visible in ps)
-  --password-env NAME   read the VNC password from env var NAME
-  --password-fd N       read the VNC password from file descriptor N
-  --rotate 0|90|180|270 rotate touch mapping to the panel (default 0)
-  --reconnect-max N     reconnect attempts; -1 = forever (default 10)
-  --reconnect-delay MS  base reconnect backoff (default 1000)
-  --backlight on|off|keep|N
-                        panel brightness at takeover (default on): on = light it
-                        if dark, off = dark, keep = leave it, N = level 1..255;
-                        a lit level this program changed is restored at exit
-  --backlight-auto off|on|S
-                        turn the panel off after S seconds of an all-black frame
-                        (on = 60) and back on at the first lit frame (default off)
-  --backlight-set on|off|N
-                        set the brightness and exit at once - no server, no
-                        session; for a host driving the panel over ssh while a
-                        client runs
-  -v, --verbose         diagnostic logging to stderr
-  -h, --help / --version
-</code></pre>
+<p>Synopsis: <code>primevnc &lt;ip&gt; [options]</code></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;ip&gt;</code></td>
+<td>numeric IPv4 of the VNC server (no DNS)</td>
+</tr>
+<tr>
+<td><code>--port N</code></td>
+<td>RFB port (default 5900)</td>
+</tr>
+<tr>
+<td><code>--fb PATH</code></td>
+<td>framebuffer device (default <code>/dev/fb0</code>)</td>
+</tr>
+<tr>
+<td><code>--input PATH</code></td>
+<td>evdev touch node (default: autodetect)</td>
+</tr>
+<tr>
+<td><code>--password P</code></td>
+<td>VNC password on the command line (visible in <code>ps</code>)</td>
+</tr>
+<tr>
+<td><code>--password-env NAME</code></td>
+<td>read the VNC password from env var <code>NAME</code></td>
+</tr>
+<tr>
+<td><code>--password-fd N</code></td>
+<td>read the VNC password from file descriptor <code>N</code></td>
+</tr>
+<tr>
+<td><code>--rotate 0\|90\|180\|270</code></td>
+<td>rotate touch mapping to the panel (default 0)</td>
+</tr>
+<tr>
+<td><code>--reconnect-max N</code></td>
+<td>reconnect attempts; -1 = forever (default 10)</td>
+</tr>
+<tr>
+<td><code>--reconnect-delay MS</code></td>
+<td>base reconnect backoff (default 1000)</td>
+</tr>
+<tr>
+<td><code>--backlight on\|off\|keep\|N</code></td>
+<td>panel brightness at takeover (default on): on = light it if dark, off = dark, keep = leave it, N = level 1..255; a lit level this program changed is restored at exit</td>
+</tr>
+<tr>
+<td><code>--backlight-auto off\|on\|S</code></td>
+<td>turn the panel off after S seconds of an all-black frame (on = 60) and back on at the first lit frame (default off)</td>
+</tr>
+<tr>
+<td><code>--backlight-set on\|off\|N</code></td>
+<td>set the brightness and exit at once - no server, no session; for a host driving the panel over ssh while a client runs</td>
+</tr>
+<tr>
+<td><code>-v, --verbose</code></td>
+<td>diagnostic logging to stderr</td>
+</tr>
+<tr>
+<td><code>-h, --help</code></td>
+<td>this help</td>
+</tr>
+<tr>
+<td><code>--version</code></td>
+<td>print version and exit</td>
+</tr>
+</tbody>
+</table>
+<p>This is the full set of options the client accepts (the same options as
+<code>primevnc --help</code>). The password forms and the three <code>--backlight*</code> options are
+described further below.</p>
 <h3>The backlight</h3>
 <p>The panel&rsquo;s brightness is not the framebuffer&rsquo;s: on the sunxi disp2 driver it
 is set through <code>/dev/disp</code>, and the value survives whatever process last owned
@@ -277,6 +397,32 @@ session up after three heartbeats in a row go unanswered (about 32 s), which
 catches a host that vanished without a FIN/RST. Reconnects that follow an
 established session start a fresh attempt count, so a kiosk survives any number
 of host restarts.</p>
+<h3>Sample launcher scripts</h3>
+<p>Two reference scripts ship beside the binary, codifying the launch procedure
+used to test the client on the device. Each is a SAMPLE for the reference
+device &ndash; they name the stock UI <code>ec-eeb001-gui</code> and its <code>/opt</code> paths, so adapt
+them for another target &ndash; and the client itself never stops or starts the UI;
+that is entirely these scripts&rsquo; job.</p>
+<ul>
+<li><strong><code>primevnc-run.sh &lt;ip&gt; &lt;password&gt; [--background] [options]</code></strong> stops the stock
+  UI (<code>killall -9</code>) and runs the client. You supply the IP and password on the
+  script&rsquo;s own command line and they are forwarded to the client (the password
+  through the environment, so it never appears in <code>ps</code>); any extra arguments
+  pass straight through to <code>primevnc</code>. By default the client runs in the
+  <strong>foreground</strong>, so the script is the session. <strong><code>--background</code></strong> instead
+  detaches it &ndash; a HUP-ignoring background subshell, because the device has no
+  <code>nohup</code> or <code>setsid</code> &ndash; so it keeps running after you log out over SSH, and it
+  prints the client&rsquo;s pid (<code>kill &lt;pid&gt;</code> or <code>killall primevnc</code> stops it). That is
+  a runtime detach only: it installs nothing, so it does <strong>not</strong> survive a
+  reboot &ndash; after a reboot the device simply comes up running its own stock UI.</li>
+<li><strong><code>primevnc-restore-ui.sh</code></strong> restarts the stock UI once the session ends. It
+  reconstructs the environment the device&rsquo;s init gives the UI &ndash; its <code>PATH</code> and,
+  critically, its <code>LD_LIBRARY_PATH</code>, without which a relaunch fails silently &ndash;
+  by preferring a running daemon&rsquo;s own environment and falling back to the
+  device&rsquo;s known paths.</li>
+</ul>
+<p>Make them executable once on the device
+(<code>chmod +x primevnc-run.sh primevnc-restore-ui.sh</code>).</p>
 <p><strong>Not autorun:</strong> nothing is added to the device&rsquo;s init.</p>
 <hr />
 <h2 id="development-status">Development status</h2>
