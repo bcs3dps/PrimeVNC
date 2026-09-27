@@ -228,17 +228,21 @@ device -- they name the stock UI `ec-eeb001-gui` and its `/opt` paths, so adapt
 them for another target -- and the client itself never stops or starts the UI;
 that is entirely these scripts' job.
 
-- **`primevnc-run.sh <ip> <password> [--background] [options]`** stops the stock
-  UI (`killall -9`) and runs the client. You supply the IP and password on the
-  script's own command line and they are forwarded to the client (the password
-  through the environment, so it never appears in `ps`); any extra arguments
-  pass straight through to `primevnc`. By default the client runs in the
-  **foreground**, so the script is the session. **`--background`** instead
-  detaches it -- a HUP-ignoring background subshell, because the device has no
-  `nohup` or `setsid` -- so it keeps running after you log out over SSH, and it
-  prints the client's pid (`kill <pid>` or `killall primevnc` stops it). That is
-  a runtime detach only: it installs nothing, so it does **not** survive a
-  reboot -- after a reboot the device simply comes up running its own stock UI.
+- **`primevnc-run.sh <ip> [password] [--background] [options]`** stops the stock
+  UI (`killall -9`) and runs the client. You supply the server IP on the
+  script's own command line; the **password is optional** -- give it for a
+  server that uses VNC Authentication (it is passed through the environment, so
+  it never appears in `ps`), or omit it for a no-password server (RFB "None"),
+  in which case nothing is passed and the client connects unauthenticated. The
+  password, when present, is the argument right after the IP that does not begin
+  with a dash. Any extra arguments pass straight through to `primevnc`. By
+  default the client runs in the **foreground**, so the script is the session.
+  **`--background`** instead detaches it -- a HUP-ignoring background subshell,
+  because the device has no `nohup` or `setsid` -- so it keeps running after you
+  log out over SSH, and it prints the client's pid (`kill <pid>` or
+  `killall primevnc` stops it). That is a runtime detach only: it installs
+  nothing, so it does **not** survive a reboot -- after a reboot the device
+  simply comes up running its own stock UI.
 - **`primevnc-restore-ui.sh`** restarts the stock UI once the session ends. It
   reconstructs the environment the device's init gives the UI -- its `PATH` and,
   critically, its `LD_LIBRARY_PATH`, without which a relaunch fails silently --

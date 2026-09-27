@@ -404,17 +404,21 @@ device &ndash; they name the stock UI <code>ec-eeb001-gui</code> and its <code>/
 them for another target &ndash; and the client itself never stops or starts the UI;
 that is entirely these scripts&rsquo; job.</p>
 <ul>
-<li><strong><code>primevnc-run.sh &lt;ip&gt; &lt;password&gt; [--background] [options]</code></strong> stops the stock
-  UI (<code>killall -9</code>) and runs the client. You supply the IP and password on the
-  script&rsquo;s own command line and they are forwarded to the client (the password
-  through the environment, so it never appears in <code>ps</code>); any extra arguments
-  pass straight through to <code>primevnc</code>. By default the client runs in the
-  <strong>foreground</strong>, so the script is the session. <strong><code>--background</code></strong> instead
-  detaches it &ndash; a HUP-ignoring background subshell, because the device has no
-  <code>nohup</code> or <code>setsid</code> &ndash; so it keeps running after you log out over SSH, and it
-  prints the client&rsquo;s pid (<code>kill &lt;pid&gt;</code> or <code>killall primevnc</code> stops it). That is
-  a runtime detach only: it installs nothing, so it does <strong>not</strong> survive a
-  reboot &ndash; after a reboot the device simply comes up running its own stock UI.</li>
+<li><strong><code>primevnc-run.sh &lt;ip&gt; [password] [--background] [options]</code></strong> stops the stock
+  UI (<code>killall -9</code>) and runs the client. You supply the server IP on the
+  script&rsquo;s own command line; the <strong>password is optional</strong> &ndash; give it for a
+  server that uses VNC Authentication (it is passed through the environment, so
+  it never appears in <code>ps</code>), or omit it for a no-password server (RFB &ldquo;None&rdquo;),
+  in which case nothing is passed and the client connects unauthenticated. The
+  password, when present, is the argument right after the IP that does not begin
+  with a dash. Any extra arguments pass straight through to <code>primevnc</code>. By
+  default the client runs in the <strong>foreground</strong>, so the script is the session.
+  <strong><code>--background</code></strong> instead detaches it &ndash; a HUP-ignoring background subshell,
+  because the device has no <code>nohup</code> or <code>setsid</code> &ndash; so it keeps running after you
+  log out over SSH, and it prints the client&rsquo;s pid (<code>kill &lt;pid&gt;</code> or
+  <code>killall primevnc</code> stops it). That is a runtime detach only: it installs
+  nothing, so it does <strong>not</strong> survive a reboot &ndash; after a reboot the device
+  simply comes up running its own stock UI.</li>
 <li><strong><code>primevnc-restore-ui.sh</code></strong> restarts the stock UI once the session ends. It
   reconstructs the environment the device&rsquo;s init gives the UI &ndash; its <code>PATH</code> and,
   critically, its <code>LD_LIBRARY_PATH</code>, without which a relaunch fails silently &ndash;

@@ -13,11 +13,18 @@
 # location for another target.
 #
 # Usage:
-#   primevnc-run.sh <ip> <password> [--background] [extra primevnc options...]
+#   primevnc-run.sh <ip> [password] [--background] [extra primevnc options...]
 #
 #   <ip>          numeric IPv4 of the VNC server (no DNS)
-#   <password>    VNC password; passed to the client through the environment
-#                 so it does NOT appear in the process list (ps)
+#   [password]    OPTIONAL VNC password. Give it for a server that uses VNC
+#                 Authentication; it is handed to the client through the
+#                 environment so it does NOT appear in the process list (ps).
+#                 OMIT it for a server with no password (RFB "None" security):
+#                 then nothing is passed and the client connects unauthenticated.
+#                 When present it is the argument right after <ip> that does NOT
+#                 begin with a dash -- a leading-dash argument is taken as an
+#                 option, so a no-password launch goes straight to the options,
+#                 e.g. "primevnc-run.sh <ip> --background".
 #   --background  detach and run the client in the background so it keeps
 #                 running after you log out of this SSH session (the device has
 #                 no nohup or setsid). RUNTIME detach ONLY: it installs nothing,
@@ -26,8 +33,8 @@
 #   extra args    anything else is passed straight to primevnc, e.g.
 #                 --port 5901, --rotate 90, --backlight-auto 60
 #
-# The user supplies <ip> and <password> on this script's command line and they
-# are forwarded to the client; nothing is hard-coded here.
+# The user supplies <ip> (and optionally a password) on this script's command
+# line and they are forwarded to the client; nothing is hard-coded here.
 #
 # This is the exact procedure used to launch and test the client on the device:
 #   1. kill the stock UI (it ignores SIGTERM, so -9) to free /dev/fb0 and the
@@ -49,14 +56,30 @@
 # The stock UI's process name on the reference device.
 UI=ec-eeb001-gui
 
-# Require the server address and the password.
-if [ "$#" -lt 2 ]; then
-    echo "usage: $0 <ip> <password> [--background] [primevnc options...]" >&2
+# Require the server address; the password is optional (a no-password server
+# uses RFB "None" security and needs none).
+if [ "$#" -lt 1 ]; then
+    echo "usage: $0 <ip> [password] [--background] [primevnc options...]" >&2
     exit 1
 fi
 SERVER="$1"
-PASSWORD="$2"
-shift 2
+shift
+
+# Optional password: the next argument, but ONLY when it is not an option. An
+# argument beginning with a dash is an option (e.g. --background), so a launch
+# with no password falls straight through to the option scan below.
+HAVE_PASSWORD=0
+PASSWORD=""
+if [ "$#" -ge 1 ]; then
+    case "$1" in
+        -*)
+            : ;;                        # an option, not a password -- leave it
+        *)
+            PASSWORD="$1"               # a bare word right after <ip> is the password
+            HAVE_PASSWORD=1
+            shift ;;
+    esac
+fi
 
 # Pull our own --background flag out of the remaining arguments; everything left
 # is forwarded to primevnc untouched (the client has no --background of its own).
@@ -90,10 +113,15 @@ fi
 killall -9 "$UI" 2>/dev/null
 sleep 1
 
-# The password is handed over through an environment variable and
-# --password-env, so it is never in argv and never shows up in ps.
-PRIMEVNC_PASSWORD="$PASSWORD"
-export PRIMEVNC_PASSWORD
+# If a password was given, hand it to the client through an environment
+# variable and --password-env -- so it is never in argv and never shows up in
+# ps -- by prepending those options to the forwarded set. With no password we
+# prepend nothing, and the client uses the server's "None" security type.
+if [ "$HAVE_PASSWORD" -eq 1 ]; then
+    PRIMEVNC_PASSWORD="$PASSWORD"
+    export PRIMEVNC_PASSWORD
+    set -- --password-env PRIMEVNC_PASSWORD "$@"
+fi
 
 if [ "$BACKGROUND" -eq 1 ]; then
     # Detached background run. The subshell ignores SIGHUP and sends its stdio
@@ -103,7 +131,7 @@ if [ "$BACKGROUND" -eq 1 ]; then
     # written to any init or boot location, so a reboot kills it and the device
     # boots to its stock UI as usual. exec inside the subshell makes primevnc
     # itself the backgrounded process, so $! is its pid.
-    ( trap '' HUP; exec "$BIN" "$SERVER" --password-env PRIMEVNC_PASSWORD "$@" >/dev/null 2>&1 ) &
+    ( trap '' HUP; exec "$BIN" "$SERVER" "$@" >/dev/null 2>&1 ) &
     echo "primevnc detached (pid $!); stop it with: kill $! (or killall primevnc)"
     exit 0
 fi
@@ -111,4 +139,4 @@ fi
 # Foreground run (default): exec replaces this shell with the client, so the
 # client's exit code becomes this script's exit code and this script IS the
 # session.
-exec "$BIN" "$SERVER" --password-env PRIMEVNC_PASSWORD "$@"
+exec "$BIN" "$SERVER" "$@"
