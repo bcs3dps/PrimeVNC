@@ -1,0 +1,5 @@
+# PrimeVNC build outputs - not committed.
+# The repository-root .gitignore also excludes executables and built files;
+# this keeps the whole build/ tree (binaries and any objects) out regardless.
+build/
+*.o

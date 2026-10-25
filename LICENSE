@@ -1,0 +1,47 @@
+==============================================================================
+PrimeVNC -- framebuffer VNC client for Allwinner sunxi Linux devices
+SPDX-License-Identifier: GPL-2.0-or-later
+
+This LICENSE file applies to every source file, build script, and document
+in this directory tree.
+==============================================================================
+
+Copyright (c) 2026 B. C. Services
+
+This program is free software; you may redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.  The full text is in GPL-2.0.txt beside this
+file.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+------------------------------------------------------------------------------
+GNU General Public License v2.0 or later
+------------------------------------------------------------------------------
+
+The full text of the GNU General Public License version 2.0 is in the
+sibling file `GPL-2.0.txt` within this same directory.  That text was
+fetched verbatim from the canonical source published by the Free
+Software Foundation:
+
+    https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+The "or any later version" clause means: you may instead use the terms of
+any later version of the GPL published by the Free Software Foundation.
+
+------------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------------
+
+None.  Every file in this tree was authored for this program, including the
+single-block DES used for VNC authentication, which is written from the
+published FIPS 46-3 specification and not derived from any other
+implementation.
+
+------------------------------------------------------------------------------
+End of LICENSE
+------------------------------------------------------------------------------

@@ -1,0 +1,4 @@
+# Store and check out every file byte-for-byte, on every platform.
+# The C sources, shell scripts and docs are LF; git must never rewrite
+# line endings here.
+* -text
